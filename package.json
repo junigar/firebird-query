@@ -9,7 +9,7 @@
     "email": "juninogarozzo@gmail.com"
   },
   "engines": {
-    "node": ">= 16.17.0"
+    "node": ">= 16.14.2"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
