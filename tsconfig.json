@@ -6,7 +6,7 @@
     "module": "commonjs",
     "outDir": "./dist",
     "skipLibCheck": true,
-    "strict": true,
+    "strict": false,
     "target": "ES2017"
   }
 }

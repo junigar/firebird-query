@@ -1,315 +1,293 @@
+import Firebird from "node-firebird";
 import {
-  Database,
-  escape,
-  Options,
-  ISOLATION_READ_COMMITTED,
-  pool as FBpool,
-  Transaction,
-} from "node-firebird";
+  DeleteOneParams,
+  InsertOneParams,
+  InsertParams,
+  PrimetiveValue,
+  UpdateOneParams,
+  UpdateOrInsertParams,
+  WhereObject,
+  deleteOneQuery,
+  insertManyQuery,
+  insertOneQuery,
+  paginatedQuery,
+  sqlBuilder,
+  updateOneQuery,
+  updateOrInsertQuery,
+} from "./sql_builder";
 
-type PrimetiveValue = String | number | boolean | Date | null | undefined;
-type Operators =
-  | {
-      ne?: number;
-      gt?: number;
-      gte?: number;
-      lt?: number;
-      lte?: number;
-      between?: { from: number; to: number };
-      IN?: number[];
-      notIN?: number[];
-    }
-  | {
-      ne?: Date;
-      gt?: Date;
-      gte?: Date;
-      lt?: Date;
-      lte?: Date;
-      between?: { from: Date; to: Date };
-      IN?: Date[];
-      notIN?: Date[];
-    }
-  | {
-      ne?: string;
-      IN?: string[];
-      notIN?: string[];
-    };
-
-type WhereObject =
-  | {
-      OR?: WhereObject[];
-    }
-  | {
-      [k in string]: Operators | PrimetiveValue;
-    };
-
-type ValueType = string | number | Date;
-
-type InsertParams<T> = {
-  readonly tableName: string;
-  readonly columnNames: ReadonlyArray<keyof T>;
-  readonly rowValues: ReadonlyArray<{ [k in keyof T]: any }>;
+const defaultOptions: Firebird.Options = {
+  host: process.env.DB_HOST,
+  port: Number.parseInt(process.env.DB_PORT) || 3050,
+  database: process.env.DB_DATABASE,
+  user: process.env.DB_USER || "SYSDBA",
+  password: process.env.DB_PASSWORD,
 };
 
-type InsertOneParams<T> = {
-  readonly tableName: string;
-  readonly rowValues: { [k in string]: any };
-  readonly returning?: ReadonlyArray<keyof T>;
-};
+export class FirebirdQuery {
+  private conn: Firebird.ConnectionPool;
 
-type UpdateOneParams<T> = {
-  readonly tableName: string;
-  readonly rowValues: { [k in string]: any };
-  readonly returning?: ReadonlyArray<keyof T>;
-  readonly conditions: { [k in string]: any };
-};
-type UpdateOrInsertParams<T> = {
-  readonly tableName: string;
-  readonly rowValues: { [k in string]: any };
-  readonly returning?: ReadonlyArray<keyof T>;
-};
-
-const verifyIfWhereObject = (arg: any): arg is WhereObject =>
-  typeof arg === "object";
-
-const buildWhereClause = (obj: WhereObject, prefix = "", clause = "AND") => {
-  const clauses = [];
-  if (Object.values(obj).length === 1) {
-    if (Object.values(obj)[0] === undefined) {
-      return clause === "AND" ? "1 = 1" : "1 = 0";
-    }
+  constructor(options = defaultOptions, max = 10) {
+    this.conn = Firebird.pool(max, options);
   }
-  for (const key in obj) {
-    const val = (obj as any)[key];
-    if (key === "OR" && Array.isArray(val)) {
-      const arr = val as WhereObject[];
-      const orClauses: string[] = arr.map((orObj) =>
-        buildWhereClause(orObj, prefix, "OR")
-      );
-      clauses.push(`(${orClauses.join(" OR ")})`);
-    } else if (typeof val === "object" && !Array.isArray(val)) {
-      for (const subKey in val) {
-        const value = val[subKey];
-        if (subKey === "ne") {
-          clauses.push(`${prefix}${key} != ${escape(value)}`);
-        } else if (subKey === "gt") {
-          clauses.push(`${prefix}${key} > ${escape(value)}`);
-        } else if (subKey === "gte") {
-          clauses.push(`${prefix}${key} >= ${escape(value)}`);
-        } else if (subKey === "lt") {
-          clauses.push(`${prefix}${key} < ${escape(value)}`);
-        } else if (subKey === "lte") {
-          clauses.push(`${prefix}${key} <= ${escape(value)}`);
-        } else if (subKey === "between") {
-          clauses.push(
-            `${prefix}${key} BETWEEN ${escape(value["from"])} AND ${escape(
-              value["to"]
-            )}`
-          );
-        } else if (subKey === "IN") {
-          clauses.push(`${prefix}${key} IN (${value.map(escape).join(", ")})`);
-        } else if (subKey === "notIN") {
-          clauses.push(
-            `${prefix}${key} NOT IN (${value.map(escape).join(", ")})`
-          );
+
+  private getDB(): Promise<Firebird.Database> {
+    return new Promise((res, rej) => {
+      this.conn.get((err, db) => {
+        if (err) {
+          rej(err);
+        } else {
+          res(db);
         }
-      }
-    } else {
-      const value = val;
-      if (value === undefined) {
-        clauses.push("1 = 1");
-      } else {
-        clauses.push(`${prefix}${key} = ${escape(value)}`);
-      }
-    }
+      });
+    });
   }
-  return clauses.join(` AND `);
-};
 
-const sqlBuilder = (
-  strings: TemplateStringsArray,
-  params: Array<ValueType | WhereObject>
-) => {
-  return strings
-    .map((cur, i) => {
-      const param = params[i];
+  private manageQuery<T>(query: string) {
+    return new Promise<T>((res, rej) => {
+      this.conn.get((err, db) => {
+        if (err) rej(err);
+        db.query(query, [], (err, data) => {
+          if (err) rej(err);
+          db.detach((err) => (err ? rej(err) : this.conn.destroy()));
+          res(data as T);
+        });
+      });
+    });
+  }
 
-      if (verifyIfWhereObject(param)) {
-        const conditions = param;
-        const conditionResult = buildWhereClause(conditions);
-        return cur + conditionResult;
-      } else {
-        const isLastStr = i === strings.length - 1;
-        const valueResult = !isLastStr ? escape(param) : "";
-        return cur + valueResult;
+  private async getTransaction(
+    db: Firebird.Database
+  ): Promise<Firebird.Transaction> {
+    return new Promise((res, rej) => {
+      db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, transaction) => {
+        if (err) {
+          rej(err);
+        } else {
+          res(transaction);
+        }
+      });
+    });
+  }
+
+  get queryRaw() {
+    return handleRawQuery(async <T>(query: string): Promise<T> => {
+      return this.manageQuery<T>(query);
+    });
+  }
+
+  get insertOne() {
+    return handleInsertOne(async <T>(query: string): Promise<T> => {
+      return this.manageQuery<T>(query);
+    });
+  }
+
+  get insertMany() {
+    return handleInsertMany(
+      async (query: string, length: number): Promise<string> => {
+        await this.manageQuery(query);
+        return `${length} rows inserted`;
       }
-    })
-    .join("");
-};
+    );
+  }
 
-export const pool = (max: number, options: Options) => {
-  const dbPool = FBpool(max, options);
-
-  const getConnection = async (): Promise<Database> => {
-    return new Promise((resolve, reject) => {
-      dbPool.get((err, db) => (err ? reject(err) : resolve(db)));
+  get updateOne() {
+    return handleUpdateOne(async <T>(query: string): Promise<T> => {
+      return this.manageQuery<T>(query);
     });
-  };
+  }
 
-  const poolHandler = async <T = unknown>(
-    query: string,
-    params = []
-  ): Promise<T[]> => {
-    const db = await getConnection();
-    return new Promise((resolve, reject) => {
-      db.query(query, params, (err, data) => {
-        db.detach();
-        err ? reject(err) : resolve(data);
+  get updateOrInsert() {
+    return handleUpdateOrInsert(async <T>(query: string): Promise<T> => {
+      return this.manageQuery<T>(query);
+    });
+  }
+
+  get deleteOne() {
+    return handleDeleteOne(async <T>(query: string): Promise<T> => {
+      return this.manageQuery<T>(query);
+    });
+  }
+
+  async initTransaction() {
+    const db = await this.getDB();
+    const transaction = await this.getTransaction(db);
+
+    const rollbackHandler = () => {
+      return new Promise<void>((res, rej) => {
+        transaction.rollbackRetaining((err) => {
+          if (err) rej(err);
+          res();
+        });
       });
-    });
-  };
+    };
+    return {
+      queryRaw: handleRawQuery(<T>(query: string): Promise<T[]> => {
+        return new Promise<T[]>((res, rej) => {
+          transaction.query(query, [], (err, data) => {
+            if (err) rej(err);
+            res(data);
+          });
+        });
+      }),
+      insertOne: handleInsertOne(<T>(query: string): Promise<T> => {
+        return new Promise<T>((res, rej) => {
+          transaction.query(query, [], (err, data) => {
+            if (err) rej(err);
+            res(data as T);
+          });
+        });
+      }),
+      insertMany: handleInsertMany(
+        (query: string, length: number): Promise<string> => {
+          return new Promise<string>((res, rej) => {
+            transaction.query(query, [], (err, data) => {
+              if (err) rej(err);
+              res(`${length} rows inserted`);
+            });
+          });
+        }
+      ),
+      updateOne: handleUpdateOne(<T>(query: string): Promise<T> => {
+        return new Promise<T>((res, rej) => {
+          transaction.query(query, [], (err, data) => {
+            if (err) rej(err);
+            res(data as T);
+          });
+        });
+      }),
+      updateOrInsert: handleUpdateOrInsert(<T>(query: string): Promise<T> => {
+        return new Promise<T>((res, rej) => {
+          transaction.query(query, [], (err, data) => {
+            if (err) rej(err);
+            res(data as T);
+          });
+        });
+      }),
+      deleteOne: handleDeleteOne(<T>(query: string): Promise<T> => {
+        return new Promise<T>((res, rej) => {
+          transaction.query(query, [], (err, data) => {
+            if (err) rej(err);
+            res(data as T);
+          });
+        });
+      }),
+      commit: async () => {
+        return new Promise<void>((res, rej) => {
+          transaction.commit(async (err) => {
+            if (err) {
+              await rollbackHandler();
+              rej(err);
+            }
+            res();
+          });
+        });
+      },
+      rollback: async () => rollbackHandler(),
+      close: async () => {
+        return new Promise<void>((res, rej) => {
+          transaction.commit(async (err) => {
+            if (err) {
+              await rollbackHandler();
+              rej(err);
+            }
+            db.detach((err) => {
+              if (err) rej(err);
+              this.conn.destroy();
+              res();
+            });
+          });
+        });
+      },
+    };
+  }
+}
 
-  const initReadCommittedTransaction = async (): Promise<Transaction> => {
-    const db = await getConnection();
-    return new Promise((resolve, reject) => {
-      db.transaction(ISOLATION_READ_COMMITTED, (err, transaction) => {
-        if (err) reject(err);
-        resolve(transaction);
-      });
-    });
-  };
-
-  const queryRaw = <T = unknown>(
+function handleRawQuery(cb: <T = unknown>(query: string) => Promise<T[]>) {
+  return <T>(
     strings: TemplateStringsArray,
-    ...params: Array<ValueType | WhereObject>
+    ...params: Array<PrimetiveValue | WhereObject>
   ) => {
     const sanitizedQuery = sqlBuilder(strings, params);
-
     return {
       getQuery: () => sanitizedQuery,
-      execute: async () => {
+      execute: () => {
         console.log("Executing: ", sanitizedQuery);
-        const data = await poolHandler<T>(sanitizedQuery);
-        return data;
+        return cb(sanitizedQuery) as Promise<T[]>;
+      },
+      paginated: async (take: number, page: number = 1) => {
+        const pagQuery = paginatedQuery(sanitizedQuery, take, page);
+        console.log("Executing: ", pagQuery);
+        return cb(pagQuery) as Promise<T[]>;
       },
     };
   };
+}
 
-  const insertMany = <T>({
-    tableName,
-    columnNames,
-    rowValues,
-  }: InsertParams<T>) => {
-    const sortedColumns = columnNames.slice().sort();
-    const sortedColumnsStr = sortedColumns.join(", ");
-    const selectStatements = rowValues.map((row) => {
-      const sortedRow = Object.entries(row).sort(([a], [b]) =>
-        a.localeCompare(b)
-      );
-      const valuesList = sortedRow.map(([, value]) => escape(value)).join(", ");
-      return `SELECT ${valuesList} FROM RDB$DATABASE`;
-    });
-    const toInsertStatement = selectStatements.join(" UNION ALL ");
-    const query = `INSERT INTO ${tableName} (${sortedColumnsStr}) ${toInsertStatement};`;
-
+function handleInsertOne(cb: <T = unknown>(query: string) => Promise<T>) {
+  return <T extends { [key: string]: any }>(params: InsertOneParams<T>) => {
+    const query = insertOneQuery(params);
     return {
       getQuery: () => query,
-      execute: async () => {
+      execute: () => {
         console.log("Executing: ", query);
-        await poolHandler(query);
-        return `${rowValues.length} rows inserted`;
+        return cb(query) as Promise<T>;
       },
     };
   };
+}
 
-  const insertOne = <T = void>({
-    tableName,
-    rowValues,
-    returning = [],
-  }: InsertOneParams<T>) => {
-    const columns = Object.keys(rowValues);
-    const columnsStr = columns.join(", ");
-    const escapedValues = columns.map((key) => escape(rowValues[key]));
-    const valuesStr = escapedValues.join(", ");
-
-    let query = `INSERT INTO ${tableName} (${columnsStr}) VALUES (${valuesStr})`;
-    if (returning.length > 0) {
-      query += ` RETURNING ${returning.join(", ")}`;
-    }
-    query += ";";
+function handleInsertMany(
+  cb: (query: string, length: number) => Promise<string>
+) {
+  return <T extends { [key: string]: any }>(params: InsertParams<T>) => {
+    const query = insertManyQuery(params);
     return {
       getQuery: () => query,
-      execute: async () => {
+      execute: () => {
         console.log("Executing: ", query);
-        return poolHandler<T>(query) as T;
+
+        return cb(query, params.rowValues.length) as Promise<string>;
       },
     };
   };
+}
 
-  const updateOne = <T = void>({
-    tableName,
-    rowValues,
-    returning = [],
-    conditions,
-  }: UpdateOneParams<T>) => {
-    const toSet = Object.entries(rowValues).map(
-      ([columnName, value]) => `${columnName} = ${escape(value)}`
-    );
-    const valuesStr = toSet.join(", ");
-
-    const whereClauses = Object.entries(conditions).map(
-      ([columnName, value]) => `${columnName} = ${escape(value)}`
-    );
-    const whereStr = whereClauses.join(" AND ");
-
-    let query = `UPDATE ${tableName} SET ${valuesStr} WHERE ${whereStr}`;
-    if (returning.length > 0) {
-      query += ` RETURNING ${returning.join(", ")}`;
-    }
-    query += ";";
+function handleUpdateOne(cb: <T = unknown>(query: string) => Promise<T>) {
+  return <T>(params: UpdateOneParams<T>) => {
+    const query = updateOneQuery(params);
     return {
       getQuery: () => query,
-      execute: async () => {
+      execute: () => {
         console.log("Executing: ", query);
-        return poolHandler<T>(query) as T;
+        return cb(query) as Promise<T>;
       },
     };
   };
+}
 
-  const updateOrInsert = <T = void>({
-    tableName,
-    rowValues,
-    returning = [],
-  }: UpdateOrInsertParams<T>) => {
-    // Get an array of column names and escaped values.
-    const columns = Object.keys(rowValues);
-    const columnsStr = columns.join(", ");
-    const escapedValues = columns.map((key) => escape(rowValues[key]));
-    const valuesStr = escapedValues.join(", ");
-
-    // Build the SQL query using template literals.
-    let query = `UPDATE OR INSERT INTO ${tableName} (${columnsStr}) VALUES (${valuesStr})`;
-    if (returning.length > 0) {
-      query += ` RETURNING ${returning.join(", ")}`;
-    }
-    query += ";";
+function handleUpdateOrInsert(cb: <T>(query: string) => Promise<T>) {
+  return <T>(params: UpdateOrInsertParams<T>) => {
+    const query = updateOrInsertQuery(params);
     return {
       getQuery: () => query,
-      execute: async () => {
+      execute: () => {
         console.log("Executing: ", query);
-        return poolHandler<T>(query) as T;
+        return cb(query) as Promise<T>;
       },
     };
   };
+}
 
-  return {
-    queryRaw,
-    insertMany,
-    insertOne,
-    updateOne,
-    updateOrInsert,
-    $getPool: getConnection,
-    // $Firebird: Firebird,
-    $initReadCommittedTransaction: initReadCommittedTransaction,
+function handleDeleteOne(cb: <T = unknown>(query: string) => Promise<T>) {
+  return <T>(params: DeleteOneParams<T>) => {
+    const query = deleteOneQuery(params);
+    return {
+      getQuery: () => query,
+      execute: () => {
+        console.log("Executing: ", query);
+        return cb(query) as Promise<T>;
+      },
+    };
   };
-};
+}
