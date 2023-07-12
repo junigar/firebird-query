@@ -3,10 +3,9 @@ import {
   DeleteOneParams,
   InsertOneParams,
   InsertParams,
-  PrimetiveValue,
+  QueryParam,
   UpdateOneParams,
   UpdateOrInsertParams,
-  WhereObject,
   deleteOneQuery,
   insertManyQuery,
   insertOneQuery,
@@ -204,10 +203,7 @@ export class FirebirdQuery {
 }
 
 function handleRawQuery(cb: <T = unknown>(query: string) => Promise<T[]>) {
-  return <T>(
-    strings: TemplateStringsArray,
-    ...params: Array<PrimetiveValue | WhereObject>
-  ) => {
+  return <T>(strings: TemplateStringsArray, ...params: QueryParam[]) => {
     const sanitizedQuery = sqlBuilder(strings, params);
     return {
       getQuery: () => sanitizedQuery,

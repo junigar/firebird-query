@@ -1,4 +1,6 @@
-import { escape } from "node-firebird";
+import Firebird from "node-firebird";
+
+const escape = (...val: any[]) => Firebird.escape(val.join(""));
 
 export type PrimetiveValue =
   | null
@@ -34,6 +36,9 @@ type StringOperators = {
   ne?: string;
   IN?: string[];
   notIN?: string[];
+  startsWith?: string;
+  endsWith?: string;
+  contains?: string;
 };
 
 type WhereConditions = NumberOperators | DateOperators | StringOperators;
@@ -143,6 +148,15 @@ const handleObjectCondition = (
       case "notIN":
         condition = `${prefix}${key} NOT IN (${value.map(escape).join(", ")})`;
         break;
+      case "startsWith":
+        condition = `${prefix}${key} LIKE ${escape(value, "%")}`;
+        break;
+      case "endsWith":
+        condition = `${prefix}${key} LIKE ${escape("%", value)}`;
+        break;
+      case "contains":
+        condition = `${prefix}${key} LIKE ${escape("%", value, "%")}`;
+        break;
     }
 
     if (condition) {
@@ -151,7 +165,7 @@ const handleObjectCondition = (
   }
   return clauses;
 };
-
+export type QueryParam = PrimetiveValue | WhereObject;
 const handlePrimitiveValue = (
   val: PrimetiveValue,
   prefix: string,
@@ -160,7 +174,7 @@ const handlePrimitiveValue = (
 
 export const sqlBuilder = (
   strings: TemplateStringsArray,
-  params: Array<PrimetiveValue | WhereObject>
+  params: QueryParam[]
 ) => {
   return strings
     .map((cur, i) => {
@@ -183,8 +197,10 @@ export const sqlBuilder = (
 
 export const paginatedQuery = (query: string, take: number, page: number) => {
   const skip = take * (page - 1);
-  return `SELECT FIRST ${take} SKIP ${skip} * 
-          FROM (${query.replace(/;*$/g, "")});`;
+  return `SELECT FIRST ${take} SKIP ${skip} * FROM (${query.replace(
+    /;*$/g,
+    ""
+  )});`;
 };
 
 export type InsertOneParams<T extends { [key: string]: any }> = {
@@ -237,7 +253,7 @@ export const insertManyQuery = <T>({
 export type UpdateOneParams<T> = {
   readonly tableName: string;
   readonly rowValues: { [k in string]: any };
-  readonly conditions: { [k in string]: any };
+  readonly where: WhereObject;
   readonly returning?: ReadonlyArray<keyof T | string>;
 };
 
@@ -245,17 +261,14 @@ export const updateOneQuery = <T = void>({
   tableName,
   rowValues,
   returning = [],
-  conditions,
+  where,
 }: UpdateOneParams<T>) => {
   const toSet = Object.entries(rowValues).map(
     ([columnName, value]) => `${columnName} = ${escape(value)}`
   );
   const valuesStr = toSet.join(", ");
 
-  const whereClauses = Object.entries(conditions).map(
-    ([columnName, value]) => `${columnName} = ${escape(value)}`
-  );
-  const whereStr = whereClauses.join(" AND ");
+  const whereStr = buildWhereClause(where);
 
   let query = `UPDATE ${tableName} SET ${valuesStr} WHERE ${whereStr}`;
   if (returning.length > 0) {
@@ -290,16 +303,17 @@ export const updateOrInsertQuery = <T>({
 };
 
 export type DeleteOneParams<T> = {
+  /**
+   * Table name
+   */
   readonly tableName: string;
-  readonly where: { [k in string]: any };
+  readonly where: WhereObject;
   readonly returning?: ReadonlyArray<keyof T | string>;
 };
 
-export const deleteOneQuery = <T>(params: DeleteOneParams<T>) => {
+export const deleteOneQuery = <T>(params: DeleteOneParams<T>): string => {
   const { where, returning = [], tableName } = params;
-  const whereClauses = Object.entries(where)
-    .map(([columnName, value]) => `${columnName} = ${escape(value)}`)
-    .join(" AND ");
+  const whereClauses = buildWhereClause(where);
   let query = `DELETE FROM ${tableName} WHERE ${whereClauses}`;
   if (returning.length > 0) {
     query += ` RETURNING ${returning.join(", ")}`;

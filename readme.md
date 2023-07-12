@@ -4,11 +4,14 @@
 A node-firebird wrapper for easy and safe query building.  
 
 ## Installation
+
+```bash
 npm install firebird-query
+```
 
 ## Setting up
 
-In a **db.service. js** file
+### Quick setup
 
 ```typescript
 const { FirebirdQuery } =  require('firebird-query');
@@ -21,36 +24,129 @@ const  options = {
 	user:  'SYSDBA',
 	password:  'my_secure_password'
 };
-export const  db = new FirebirdQuery(options, max);
+export const db = new FirebirdQuery(options, max);
 ```
+
+### Or
+ Configure a `.env` 
+```batch
+DB_HOST="000.000.000.000"
+DB_PORT=3050
+DB_DATABASE="/path/Database/FILE.FDB"
+DB_USER="SYSDBA"
+DB_PASSWORD="my_secure_password"
+```
+Then
+```typescript
+export const db = new FirebirdQuery();
+```
+
 ## Usage
 
-**queryRaw**
+### queryRaw
 
- - Input: template string literal. Parameters will automatically be escaped to avoid query injection.
- - Return: array of objects
- - Supports pagination 
+ - Input: template string literal. Parameters are automatically escaped avoiding query injection.
+ - Execution return: array of objects.
+ - Supports pagination.
 ```typescript
 import { db } from  './db.service.js';
 
 const  result = db.queryRaw`
-SELECT COD, NAME
-FROM USERS
-WHERE SIGN_UP_DATE < ${date}`.execute();
+	SELECT COD, NAME
+	FROM USERS
+	WHERE SIGN_UP_DATE < ${date}`.execute();
 
 console.log(result);
 // --> [ { COD: 1, NAME: 'JOHN' }, { COD: 2, NAME: 'JANE' } ]
 
 const  result = db.queryRaw`
-SELECT COD, NAME
-FROM USERS
-WHERE SIGN_UP_DATE < ${date}`.paginated(1,2); // take: 1, page: 2
+	SELECT COD, NAME
+	FROM USERS
+	WHERE SIGN_UP_DATE < ${date}`.paginated(1,2); // take: 1, page: 2
 
 console.log(result); 
 // --> [ { COD: 2, NAME: 'JANE' } ]
 ```
+#### Where clauses
 
-**insertOne**
+An object can be provided instead of a raw value.
+
+ - Object keys correspond to column names. Object values to column
+   values.
+ - Multiple keys are combined as `AND` clauses
+
+```typescript
+const  result  =  t.queryRaw`SELECT COD, NAME FROM USERS WHERE ${{
+	COD:  1,
+	NAME:  "John",
+}}`.getQuery();
+console.log(result);
+// SELECT COD, NAME FROM USERS WHERE COD = '1' AND NAME = 'John'
+```
+#### Conditional statements
+If a where clause resolved to `undefined`, it will be replaced with a tautology, making it irrelevant to the query result .
+Take advantage of this behavior to conditionally add statements.
+```typescript
+const  name  =  "Tom";
+const  result  =  t.queryRaw`SELECT COD, NAME FROM USERS WHERE ${{
+	COD:  name.startsWith("J") ? 1 : undefined,
+	NAME:  name,
+}}`.getQuery();
+
+console.log(result);
+// SELECT COD, NAME FROM USERS WHERE 1=1 AND NAME = 'Tom'
+```
+#### Advance statements
+Set anything as object key. 
+This example handles **case insensitive** queries.
+```typescript
+const  name  =  "Tom";
+const  result  =  t.queryRaw`SELECT COD, NAME FROM USERS WHERE ${{
+["LOWER(NAME)"]:  name.toLowerCase(),
+}}`.getQuery();
+console.log(result);
+// SELECT COD, NAME FROM USERS WHERE LOWER(NAME) = 'tom'
+```
+#### Operators
+
+ - Number operators
+	 - ne: not equal !=
+	 - gt: greater than >
+	 - gte: greater than or equal >=
+	 - lt: lower than <
+	 - lte: lower than or equal <=
+	 - between: { from: number; to: number }
+	 - IN: number array. [1,2,3...]
+	 - notIN: NOT IN. Number array.
+ - Date operators
+	 - ne: not equal !=
+	 - gt: greater than >
+	 - gte: greater than or equal >=
+	 - lt: lower than <
+	 - lte: lower than or equal <=
+	 - between: { from: Date; to: Date }
+	 - IN: array
+	 - notIN. array.
+ - String operators
+	 - ne: not equal
+	 - IN
+	 - notIN
+	 - startsWith
+	 - endsWith
+	 - contains
+
+```typescript
+const  name  =  "Tom";
+const  result  =  t.queryRaw`SELECT COD, NAME FROM USERS WHERE ${{
+COD: { gte:  1 },
+NAME: { startsWith:  name },
+}}`.getQuery();
+
+console.log(result);
+// SELECT COD, NAME FROM USERS WHERE COD >= '1' AND NAME LIKE 'Tom%'
+```
+
+### insertOne
 
 - rowValues: the object keys correspond to database column names
 - returning: optional array of string with column names to be returned 
@@ -65,7 +161,7 @@ const  result = await  db.insertOne({
 }).execute()
 console.log(result); // --> { COD: 3 }
 ```
-**insertMany**
+### insertMany
 
 Performs an efficient INSERT statement and inserts multiple rows in a single query.
 
@@ -139,9 +235,9 @@ The ouput must be manually inferred.
 ```typescript
 
 const  result = db.queryRaw<{ COD: number }>`
-SELECT COD
-FROM USERS
-WHERE COD = ${1}`.execute();
+	SELECT COD
+	FROM USERS
+	WHERE COD = ${1}`.execute();
 console.log(result); // --> [ { COD: 1 } ]
 ```
 
@@ -155,7 +251,9 @@ An async method that returns a ISOLATION_READ_COMMITTED transaction instance to 
 ```typescript
 // recommended usage
 db.initTransaction().then(async (t) => {
-// t is scoped in this async function. 
-//Every mutation and query correspond to that specific transaction.
+// t(ransaction) is scoped in this async function. 
+//Every query and mutation correspond to this specific transaction.
 })
 ```
+
+## Support with a start ⭐️
