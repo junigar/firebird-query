@@ -143,10 +143,14 @@ const handleObjectCondition = (
         )} AND ${escape(value["to"])}`;
         break;
       case "IN":
-        condition = `${prefix}${key} IN (${value.map(escape).join(", ")})`;
+        condition = `${prefix}${key} IN (${value
+          .map((i: any) => escape(i))
+          .join(", ")})`;
         break;
       case "notIN":
-        condition = `${prefix}${key} NOT IN (${value.map(escape).join(", ")})`;
+        condition = `${prefix}${key} NOT IN (${value
+          .map((i: any) => escape(i))
+          .join(", ")})`;
         break;
       case "startsWith":
         condition = `${prefix}${key} LIKE ${escape(value, "%")}`;
@@ -303,9 +307,6 @@ export const updateOrInsertQuery = <T>({
 };
 
 export type DeleteOneParams<T> = {
-  /**
-   * Table name
-   */
   readonly tableName: string;
   readonly where: WhereObject;
   readonly returning?: ReadonlyArray<keyof T | string>;
