@@ -17,7 +17,7 @@ import {
 
 const defaultOptions: Firebird.Options = {
   host: process.env.DB_HOST,
-  port: Number.parseInt(process.env.DB_PORT) || 3050,
+  port: Number.parseInt(process.env.DB_PORT ?? "") || 3050,
   database: process.env.DB_DATABASE,
   user: process.env.DB_USER || "SYSDBA",
   password: process.env.DB_PASSWORD,
@@ -112,10 +112,11 @@ export class FirebirdQuery {
     const db = await this.getDB();
     const transaction = await this.getTransaction(db);
 
-    const rollbackHandler = () => {
+    const onError = () => {
       return new Promise<void>((res, rej) => {
         transaction.rollbackRetaining((err) => {
           if (err) rej(err);
+          this.conn.destroy();
           res();
         });
       });
@@ -175,26 +176,20 @@ export class FirebirdQuery {
         return new Promise<void>((res, rej) => {
           transaction.commit(async (err) => {
             if (err) {
-              await rollbackHandler();
+              await onError();
               rej(err);
             }
             res();
           });
         });
       },
-      rollback: async () => rollbackHandler(),
+      rollback: async () => onError(),
       close: async () => {
         return new Promise<void>((res, rej) => {
-          transaction.commit(async (err) => {
-            if (err) {
-              await rollbackHandler();
-              rej(err);
-            }
-            db.detach((err) => {
-              if (err) rej(err);
-              this.conn.destroy();
-              res();
-            });
+          db.detach((err) => {
+            if (err) rej(err);
+            this.conn.destroy();
+            res();
           });
         });
       },
