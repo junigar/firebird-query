@@ -541,6 +541,7 @@ export class FirebirdQuery {
 }
 
 function handleRawQuery(cb: <T = unknown>(query: string) => Promise<T[]>) {
+  console.log('op')
   return <T>(strings: TemplateStringsArray, ...params: QueryParam[]) => {
     const sanitizedQuery = sqlBuilder(strings, params);
     return {

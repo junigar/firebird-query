@@ -2,7 +2,7 @@
   "name": "firebird-query",
   "private": false,
   "license": "MIT",
-  "version": "0.4.1",
+  "version": "0.3.2",
   "description": "node-firebird plugin for easy and safe query building.",
   "author": {
     "name": "Junior Garozzo",
@@ -11,12 +11,13 @@
   "engines": {
     "node": ">= 16.14.2"
   },
-  "main": "./lib/esm/index.js",
-  "types": "./lib/esm/types/index.d.ts",
+  "main": "./lib/cjs/index.js",
+  "types": "./lib/cjs/types/index.d.ts",
   "scripts": {
     "clean": "rm -rf ./lib",
-    "build": "npm run clean && npm run build:esm",
-    "build:esm": "tsc  && mv lib/esm/index.js lib/esm/index.mjs",
+    "build": "npm run clean && npm run build:esm && npm run build:cjs",
+    "build:esm": "tsc -p ./configs/tsconfig.esm.json && mv lib/esm/index.js lib/esm/index.mjs",
+    "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
     "prepack": "npm run build"
   },
   "repository": {
@@ -52,6 +53,10 @@
       "import": {
         "types": "./lib/esm/types/index.d.ts",
         "default": "./lib/esm/index.mjs"
+      },
+      "require": {
+        "types": "./lib/cjs/types/index.d.ts",
+        "default": "./lib/cjs/index.js"
       }
     }
   }
