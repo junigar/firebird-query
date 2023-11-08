@@ -2,7 +2,7 @@
   "name": "firebird-query",
   "private": false,
   "license": "MIT",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "node-firebird plugin for easy and safe query building.",
   "author": {
     "name": "Junior Garozzo",
@@ -49,7 +49,7 @@
   ],
   "exports": {
     ".": {
-      "import": { 
+      "import": {
         "types": "./lib/esm/types/index.d.ts",
         "default": "./lib/esm/index.mjs"
       }
