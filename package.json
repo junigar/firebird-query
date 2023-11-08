@@ -11,13 +11,12 @@
   "engines": {
     "node": ">= 16.14.2"
   },
-  "main": "./lib/cjs/index.js",
-  "types": "./lib/cjs/types/index.d.ts",
+  "main": "./lib/esm/index.js",
+  "types": "./lib/esm/types/index.d.ts",
   "scripts": {
     "clean": "rm -rf ./lib",
-    "build": "npm run clean && npm run build:esm && npm run build:cjs",
-    "build:esm": "tsc -p ./configs/tsconfig.esm.json && mv lib/esm/index.js lib/esm/index.mjs",
-    "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
+    "build": "npm run clean && npm run build:esm",
+    "build:esm": "tsc  && mv lib/esm/index.js lib/esm/index.mjs",
     "prepack": "npm run build"
   },
   "repository": {
@@ -50,13 +49,9 @@
   ],
   "exports": {
     ".": {
-      "import": {
+      "import": { 
         "types": "./lib/esm/types/index.d.ts",
         "default": "./lib/esm/index.mjs"
-      },
-      "require": {
-        "types": "./lib/cjs/types/index.d.ts",
-        "default": "./lib/cjs/index.js"
       }
     }
   }

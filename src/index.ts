@@ -54,8 +54,8 @@ type keyOmit<T, U extends keyof any> = T & { [P in U]?: never };
 export type WhereObject =
   | keyOmit<{ [key: string]: PrimetiveValue | WhereConditions }, "OR">
   | {
-      OR: WhereObject[];
-    };
+    OR: WhereObject[];
+  };
 
 const buildWhereClause = (
   obj: WhereObject,
@@ -177,7 +177,7 @@ const handlePrimitiveValue = (
   key: string
 ): string => (val === undefined ? "1=1" : `${prefix}${key} = ${escape(val)}`);
 
- const sqlBuilder = (
+const sqlBuilder = (
   strings: TemplateStringsArray,
   params: QueryParam[]
 ) => {
@@ -200,7 +200,7 @@ const handlePrimitiveValue = (
     .join("");
 };
 
-export const paginatedQuery = (query: string, take: number, page: number) => {
+const paginatedQuery = (query: string, take: number, page: number) => {
   const skip = take * (page - 1);
   return `SELECT FIRST ${take} SKIP ${skip} * FROM (${query.replace(
     /;*$/g,
@@ -213,7 +213,7 @@ export type InsertOneParams<T extends { [key: string]: any }> = {
   rowValues: object;
   returning?: (keyof T | string)[];
 };
-export const insertOneQuery = <T extends { [key: string]: any }>(
+const insertOneQuery = <T extends { [key: string]: any }>(
   params: InsertOneParams<T>
 ) => {
   const { tableName, rowValues, returning = [] } = params;
@@ -236,7 +236,7 @@ export type InsertParams<T> = {
   readonly columnNames: ReadonlyArray<keyof T>;
 };
 
-export const insertManyQuery = <T>({
+const insertManyQuery = <T>({
   tableName,
   columnNames,
   rowValues,
@@ -262,7 +262,7 @@ export type UpdateOneParams<T> = {
   readonly returning?: ReadonlyArray<keyof T | string>;
 };
 
-export const updateOneQuery = <T = void>({
+const updateOneQuery = <T = void>({
   tableName,
   rowValues,
   returning = [],
@@ -283,13 +283,13 @@ export const updateOneQuery = <T = void>({
   return query;
 };
 
-export type UpdateOrInsertParams<T> = {
+type UpdateOrInsertParams<T> = {
   readonly tableName: string;
   readonly rowValues: { [k in string]: any };
   readonly returning?: ReadonlyArray<keyof T | string>;
 };
 
-export const updateOrInsertQuery = <T>({
+const updateOrInsertQuery = <T>({
   tableName,
   rowValues,
   returning = [],
@@ -313,7 +313,7 @@ export type DeleteOneParams<T> = {
   readonly returning?: ReadonlyArray<keyof T | string>;
 };
 
-export const deleteOneQuery = <T>(params: DeleteOneParams<T>): string => {
+const deleteOneQuery = <T>(params: DeleteOneParams<T>): string => {
   const { where, returning = [], tableName } = params;
   const whereClauses = buildWhereClause(where);
   let query = `DELETE FROM ${tableName} WHERE ${whereClauses}`;
@@ -333,6 +333,7 @@ const defaultOptions: Firebird.Options = {
 };
 
 export class FirebirdQuery {
+  private db?: Firebird.Database;
   private conn: Firebird.ConnectionPool;
 
   constructor(options = defaultOptions, max = 10) {
@@ -341,26 +342,44 @@ export class FirebirdQuery {
 
   private getDB(): Promise<Firebird.Database> {
     return new Promise((res, rej) => {
-      this.conn.get((err, db) => {
-        if (err) {
-          rej(err);
-        } else {
-          res(db);
-        }
-      });
+      if (this.db === undefined) {
+        this.conn.get((err, db) => {
+          if (err) {
+            rej(err);
+          }
+          this.db = db;
+          return res(db);
+        });
+      } else {
+        return res(this.db);
+      }
     });
   }
 
   private manageQuery<T>(query: string) {
     return new Promise<T>((res, rej) => {
-      this.conn.get((err, db) => {
-        if (err) rej(err);
-        db.query(query, [], (err, data) => {
-          if (err) rej(err);
-          db.detach((err) => (err ? rej(err) : this.conn.destroy()));
-          res(data as T);
+      if (this.db === undefined) {
+        this.conn.get((err, db) => {
+          if (err) {
+            return rej({ message: 'Error Establishing a Database Connection', err });
+          }
+          this.db = db;
+          db.query(query, [], (err, data) => {
+            if (err) {
+              return rej(err);
+            }
+            return res(data as T);
+          });
         });
-      });
+      }
+      else {
+        this.db.query(query, [], (err, data) => {
+          if (err) {
+            return rej({ message: 'Error Executing Query', err });
+          }
+          return res(data as T);
+        });
+      }
     });
   }
 
@@ -370,9 +389,9 @@ export class FirebirdQuery {
     return new Promise((res, rej) => {
       db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, transaction) => {
         if (err) {
-          rej(err);
+          return rej(err);
         } else {
-          res(transaction);
+          return res(transaction);
         }
       });
     });
@@ -424,9 +443,10 @@ export class FirebirdQuery {
     const onError = () => {
       return new Promise<void>((res, rej) => {
         transaction.rollbackRetaining((err) => {
-          if (err) rej(err);
-          this.conn.destroy();
-          res();
+          if (err) {
+            return rej(err);
+          }
+          return res();
         });
       });
     };
@@ -434,16 +454,20 @@ export class FirebirdQuery {
       queryRaw: handleRawQuery(<T>(query: string): Promise<T[]> => {
         return new Promise<T[]>((res, rej) => {
           transaction.query(query, [], (err, data) => {
-            if (err) rej(err);
-            res(data);
+            if (err) {
+              return rej(err);
+            }
+            return res(data);
           });
         });
       }),
       insertOne: handleInsertOne(<T>(query: string): Promise<T> => {
         return new Promise<T>((res, rej) => {
           transaction.query(query, [], (err, data) => {
-            if (err) rej(err);
-            res(data as T);
+            if (err) {
+              return rej(err);
+            }
+            return res(data as T);
           });
         });
       }),
@@ -451,8 +475,10 @@ export class FirebirdQuery {
         (query: string, length: number): Promise<string> => {
           return new Promise<string>((res, rej) => {
             transaction.query(query, [], (err, data) => {
-              if (err) rej(err);
-              res(`${length} rows inserted`);
+              if (err) {
+                return rej(err);
+              }
+              return res(`${length} rows inserted`);
             });
           });
         }
@@ -460,24 +486,30 @@ export class FirebirdQuery {
       updateOne: handleUpdateOne(<T>(query: string): Promise<T> => {
         return new Promise<T>((res, rej) => {
           transaction.query(query, [], (err, data) => {
-            if (err) rej(err);
-            res(data as T);
+            if (err) {
+              return rej(err);
+            }
+            return res(data as T);
           });
         });
       }),
       updateOrInsert: handleUpdateOrInsert(<T>(query: string): Promise<T> => {
         return new Promise<T>((res, rej) => {
           transaction.query(query, [], (err, data) => {
-            if (err) rej(err);
-            res(data as T);
+            if (err) {
+              return rej(err);
+            }
+            return res(data as T);
           });
         });
       }),
       deleteOne: handleDeleteOne(<T>(query: string): Promise<T> => {
         return new Promise<T>((res, rej) => {
           transaction.query(query, [], (err, data) => {
-            if (err) rej(err);
-            res(data as T);
+            if (err) {
+              return rej(err);
+            }
+            return res(data as T);
           });
         });
       }),
@@ -486,9 +518,9 @@ export class FirebirdQuery {
           transaction.commit(async (err) => {
             if (err) {
               await onError();
-              rej(err);
+              return rej(err);
             }
-            res();
+            return res();
           });
         });
       },
@@ -496,9 +528,11 @@ export class FirebirdQuery {
       close: async () => {
         return new Promise<void>((res, rej) => {
           db.detach((err) => {
-            if (err) rej(err);
+            if (err) {
+              return rej(err);
+            }
             this.conn.destroy();
-            res();
+            return res();
           });
         });
       },
