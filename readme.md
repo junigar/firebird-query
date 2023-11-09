@@ -10,9 +10,7 @@ A node-firebird wrapper for easy and safe query building.
  
 
 ```bash
-
 npm  install  firebird-query
-
 ```
 
   
@@ -25,8 +23,7 @@ npm  install  firebird-query
 
   
 
-```typescript
-
+```javascript
 import { FirebirdQuery } from  'firebird-query';
 
 const  maxConn = 10; /* optional */
@@ -38,7 +35,7 @@ const  options = {
 	password:  'my_secure_password'
 };
 
-export const  db = new  FirebirdQuery(options, maxConn);
+export const db = new FirebirdQuery(options, maxConn);
 ```
 
   
@@ -55,8 +52,8 @@ DB_USER="SYSDBA"
 DB_PASSWORD="my_secure_password"
 ```
 Then
-```typescript
-export  const  db = new  FirebirdQuery(); // use it wherever you want
+```javascript
+export const db = new FirebirdQuery(); // use it wherever you want
 ```
 
   
@@ -75,7 +72,7 @@ export  const  db = new  FirebirdQuery(); // use it wherever you want
 
 - Supports pagination.
 
-```typescript
+```javascript
 
 import { db } from  './db.service.js';
 
@@ -113,20 +110,14 @@ An object can be provided instead of a raw value.
 
   
 
-```typescript
-
-const  result = t.queryRaw`SELECT COD, NAME FROM USERS WHERE ${{
-
-COD:  1,
-
-NAME:  "John",
-
+```javascript
+const  result = await t.queryRaw`SELECT COD, NAME FROM USERS WHERE ${{
+    COD:  1,
+    NAME:  "John",
 }}`.getQuery();
 
 console.log(result);
-
 // SELECT COD, NAME FROM USERS WHERE COD = '1' AND NAME = 'John'
-
 ```
 
 #### Conditional statements
@@ -135,17 +126,15 @@ If a where clause resolved to `undefined`, it will be replaced with a tautology,
 
 Take advantage of this behavior to conditionally add statements.
 
-```typescript
-
+```javascript
 const  name = "Tom";
-
 const  result = await t.queryRaw`
 	SELECT COD, NAME FROM USERS WHERE ${{
 		COD:  name.startsWith("J") ? 1 : undefined,
 		NAME:  name
 	}}`.getQuery();
-console.log(result);
 
+console.log(result);
 // SELECT COD, NAME FROM USERS WHERE 1=1 AND NAME = 'Tom'
 ```
 
@@ -155,17 +144,14 @@ Set anything as object key.
 
 This example handles **case insensitive** queries.
 
-```typescript
-
+```javascript
 const  name = "Tom";
-
 const  result = await t.queryRaw`
 	SELECT COD, NAME FROM USERS WHERE ${{
 		["LOWER(NAME)"]:  name.toLowerCase(),
 	}}`.getQuery();
 
 console.log(result);
-
 // SELECT COD, NAME FROM USERS WHERE LOWER(NAME) = 'tom'
 ```
 
@@ -225,7 +211,7 @@ console.log(result);
 
   
 
-```typescript
+```javascript
 const  name = "Tom";
 const  result = await t.queryRaw`
 	SELECT COD, NAME FROM USERS WHERE ${{
@@ -250,7 +236,7 @@ console.log(result);
 
   
 
-```typescript
+```javascript
 const  result = await  db.insertOne({
 	tableName:  'USERS',
 	rowValues: {
@@ -369,24 +355,26 @@ console.log(result); // --> [ { COD: 1 } ]
 
 ## initTransaction
 
-An async method that returns a ISOLATION_READ_COMMITTED transaction instance to work with. It has the same methods to query and mutate the database in addition to
+A callback managed function that returns a `ISOLATION_READ_COMMITTED` transaction instance to work with. It has the same methods to query and mutate the database in addition to
 
-  
 
 1. commit
 
-2. close
-
-3. rollback
+2. rollback
 
   
 
-```typescript
-// recommended usage
-db.initTransaction().then(async (t) => {
-	// t(ransaction) is scoped into this async function.
-
-	//Every query or mutation correspond to this specific transaction.
-})
-
+```javascript
+// recommended approach
+db.initTransaction(async (t) => {
+        // t(ransaction) is scoped into this async function.
+        try {
+            const data = await t.queryRaw`
+            SELECT 1 AS TEST FROM RDB$DATABASE;
+            `.execute();
+            console.log(data); // --> [{ TEST: 1 }]
+        } catch (error) {
+            console.log(error);
+        }
+    })
 ```

@@ -326,74 +326,55 @@ const deleteOneQuery = <T>(params: DeleteOneParams<T>): string => {
 
 const defaultOptions: Firebird.Options = {
   host: process.env.DB_HOST,
-  port: Number.parseInt(process.env.DB_PORT ?? "") || 3050,
+  port: Number.parseInt(process.env.DB_PORT || "") || 3050,
   database: process.env.DB_DATABASE,
   user: process.env.DB_USER || "SYSDBA",
   password: process.env.DB_PASSWORD,
 };
 
 export class FirebirdQuery {
-  private db?: Firebird.Database;
   private conn: Firebird.ConnectionPool;
 
   constructor(options = defaultOptions, max = 10) {
     this.conn = Firebird.pool(max, options);
   }
 
-  private getDB(): Promise<Firebird.Database> {
+  private get db(): Promise<Firebird.Database> {
     return new Promise((res, rej) => {
-      if (this.db === undefined) {
-        this.conn.get((err, db) => {
-          if (err) {
-            rej(err);
-          }
-          this.db = db;
-          return res(db);
-        });
-      } else {
-        return res(this.db);
-      }
+      this.conn.get((err, db) => {
+        if (err) {
+          return rej({ message: 'Error Establishing a Database Connection', err });
+        }
+        return res(db);
+      })
     });
-  }
+  };
 
   private manageQuery<T>(query: string) {
     return new Promise<T>((res, rej) => {
-      if (this.db === undefined) {
-        this.conn.get((err, db) => {
-          if (err) {
-            return rej({ message: 'Error Establishing a Database Connection', err });
-          }
-          this.db = db;
+      this.db
+        .then((db) => {
           db.query(query, [], (err, data) => {
             if (err) {
-              return rej(err);
+              return rej({ message: 'Query error', err });
             }
             return res(data as T);
-          });
-        });
-      }
-      else {
-        this.db.query(query, [], (err, data) => {
-          if (err) {
-            return rej({ message: 'Error Executing Query', err });
-          }
-          return res(data as T);
-        });
-      }
+          })
+        })
+        .catch(err => rej(err))
     });
   }
 
-  private async getTransaction(
-    db: Firebird.Database
-  ): Promise<Firebird.Transaction> {
+  private get transaction(): Promise<Firebird.Transaction> {
     return new Promise((res, rej) => {
-      db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, transaction) => {
-        if (err) {
-          return rej(err);
-        } else {
-          return res(transaction);
-        }
-      });
+      this.db.then((db) => {
+        db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, tx) => {
+          if (err) {
+            return rej({ message: 'Error initializing transaction', err });
+          }
+          return res(tx);
+        })
+      })
     });
   }
 
@@ -436,112 +417,34 @@ export class FirebirdQuery {
     });
   }
 
-  async initTransaction() {
-    const db = await this.getDB();
-    const transaction = await this.getTransaction(db);
-
-    const onError = () => {
-      return new Promise<void>((res, rej) => {
-        transaction.rollbackRetaining((err) => {
-          if (err) {
-            return rej(err);
-          }
-          return res();
-        });
-      });
-    };
-    return {
-      queryRaw: handleRawQuery(<T>(query: string): Promise<T[]> => {
-        return new Promise<T[]>((res, rej) => {
-          transaction.query(query, [], (err, data) => {
-            if (err) {
-              return rej(err);
-            }
-            return res(data);
-          });
-        });
-      }),
-      insertOne: handleInsertOne(<T>(query: string): Promise<T> => {
-        return new Promise<T>((res, rej) => {
-          transaction.query(query, [], (err, data) => {
-            if (err) {
-              return rej(err);
-            }
-            return res(data as T);
-          });
-        });
-      }),
-      insertMany: handleInsertMany(
-        (query: string, length: number): Promise<string> => {
-          return new Promise<string>((res, rej) => {
-            transaction.query(query, [], (err, data) => {
-              if (err) {
-                return rej(err);
-              }
-              return res(`${length} rows inserted`);
-            });
-          });
+  initTransaction(cb: (tx: ReturnType<typeof txHandler>) => void) {
+    this.conn.get((err, db) => {
+      if (err) {
+        throw new Error('Error Establishing a Database Connection');
+      }
+      db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, tx) => {
+        if (err) {
+          throw new Error('Error initializing transaction');
         }
-      ),
-      updateOne: handleUpdateOne(<T>(query: string): Promise<T> => {
-        return new Promise<T>((res, rej) => {
-          transaction.query(query, [], (err, data) => {
-            if (err) {
-              return rej(err);
-            }
-            return res(data as T);
-          });
-        });
-      }),
-      updateOrInsert: handleUpdateOrInsert(<T>(query: string): Promise<T> => {
-        return new Promise<T>((res, rej) => {
-          transaction.query(query, [], (err, data) => {
-            if (err) {
-              return rej(err);
-            }
-            return res(data as T);
-          });
-        });
-      }),
-      deleteOne: handleDeleteOne(<T>(query: string): Promise<T> => {
-        return new Promise<T>((res, rej) => {
-          transaction.query(query, [], (err, data) => {
-            if (err) {
-              return rej(err);
-            }
-            return res(data as T);
-          });
-        });
-      }),
-      commit: async () => {
-        return new Promise<void>((res, rej) => {
-          transaction.commit(async (err) => {
-            if (err) {
-              await onError();
-              return rej(err);
-            }
-            return res();
-          });
-        });
-      },
-      rollback: async () => onError(),
-      close: async () => {
-        return new Promise<void>((res, rej) => {
-          db.detach((err) => {
-            if (err) {
-              return rej(err);
-            }
-            this.conn.destroy();
-            return res();
-          });
-        });
-      },
-    };
+        const res = {
+          queryRaw: handleRawQuery(<T>(query: string): Promise<T[]> => {
+            return new Promise<T[]>((res, rej) => {
+              tx.query(query, [], (err, data) => {
+                if (err) {
+                  return rej(err);
+                }
+                return res(data);
+              });
+            });
+          }),
+        }
+        cb(txHandler(tx));
+      })
+    });
   }
 }
 
 function handleRawQuery(cb: <T = unknown>(query: string) => Promise<T[]>) {
-  console.log('op')
   return <T>(strings: TemplateStringsArray, ...params: QueryParam[]) => {
     const sanitizedQuery = sqlBuilder(strings, params);
     return {
@@ -624,5 +527,63 @@ function handleDeleteOne(cb: <T = unknown>(query: string) => Promise<T>) {
         return cb(query) as Promise<T>;
       },
     };
+  };
+}
+
+
+function txHandler(tx: Firebird.Transaction) {
+  function onError() {
+    return new Promise<void>((res, rej) => {
+      tx.rollback((err) => {
+        if (err) {
+          return rej(err);
+        }
+        return res();
+      });
+    });
+  };
+
+  function executeTransactionQuery<T>(query: string, processResult: (data: any) => T): Promise<T> {
+    return new Promise<T>((res, rej) => {
+      tx.query(query, [], (err, data) => {
+        if (err) {
+          return rej(err);
+        }
+        return res(processResult(data));
+      });
+    });
+  }
+
+  return {
+    queryRaw: handleRawQuery(<T>(query: string): Promise<T[]> => {
+      return executeTransactionQuery(query, data => data);
+    }),
+    insertOne: handleInsertOne(<T>(query: string): Promise<T> => {
+      return executeTransactionQuery(query, data => data as T);
+    }),
+    insertMany: handleInsertMany((query: string, length: number): Promise<string> => {
+      return executeTransactionQuery(query, () => `${length} rows inserted`);
+    }),
+    updateOne: handleUpdateOne(<T>(query: string): Promise<T> => {
+      return executeTransactionQuery(query, data => data as T);
+    }),
+    updateOrInsert: handleUpdateOrInsert(<T>(query: string): Promise<T> => {
+      return executeTransactionQuery(query, data => data as T);
+    }),
+    deleteOne: handleDeleteOne(<T>(query: string): Promise<T> => {
+      return executeTransactionQuery(query, data => data as T);
+    }),
+    commit: async () => {
+      return new Promise<void>((res, rej) => {
+        tx.commit(async (err) => {
+          if (err) {
+            await onError();
+            return rej(err);
+          }
+          return res();
+        });
+      });
+    },
+    rollback: () => onError()
   };
 }
