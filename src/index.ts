@@ -343,7 +343,7 @@ export class FirebirdQuery {
     return new Promise((res, rej) => {
       this.conn.get((err, db) => {
         if (err) {
-          return rej({ message: 'Error Establishing a Database Connection', err });
+          return rej({ message: 'Error establishing a database connection', err });
         }
         return res(db);
       })
@@ -355,6 +355,7 @@ export class FirebirdQuery {
       this.db
         .then((db) => {
           db.query(query, [], (err, data) => {
+            db.detach();
             if (err) {
               return rej({ message: 'Query error', err });
             }
