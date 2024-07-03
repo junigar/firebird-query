@@ -1,4 +1,3 @@
-
 import Firebird from "node-firebird";
 
 const escape = (...val: any[]) => Firebird.escape(val.join(""));
@@ -54,8 +53,8 @@ type keyOmit<T, U extends keyof any> = T & { [P in U]?: never };
 export type WhereObject =
   | keyOmit<{ [key: string]: PrimetiveValue | WhereConditions }, "OR">
   | {
-    OR: WhereObject[];
-  };
+      OR: WhereObject[];
+    };
 
 const buildWhereClause = (
   obj: WhereObject,
@@ -177,10 +176,7 @@ const handlePrimitiveValue = (
   key: string
 ): string => (val === undefined ? "1=1" : `${prefix}${key} = ${escape(val)}`);
 
-const sqlBuilder = (
-  strings: TemplateStringsArray,
-  params: QueryParam[]
-) => {
+const sqlBuilder = (strings: TemplateStringsArray, params: QueryParam[]) => {
   return strings
     .map((cur, i) => {
       const param = params[i];
@@ -334,65 +330,76 @@ const defaultOptions: Firebird.Options = {
 
 export class FirebirdQuery {
   private conn: Firebird.ConnectionPool;
+  private queryLogger: boolean;
 
-  constructor(options = defaultOptions, max = 10) {
-    this.conn = Firebird.pool(max, options);
+  constructor(
+    poolOptions: Firebird.Options & {
+      maxConnections?: number;
+    } = { ...defaultOptions },
+    fqOptions?: {
+      queryLogger: boolean;
+    }
+  ) {
+    const { maxConnections = 15, ...options } = poolOptions;
+    this.queryLogger = fqOptions?.queryLogger || false;
+    this.conn = Firebird.pool(maxConnections, options);
   }
 
   private get db(): Promise<Firebird.Database> {
     return new Promise((res, rej) => {
       this.conn.get((err, db) => {
         if (err) {
-          return rej({ message: 'Error establishing a database connection', err });
+          if (err instanceof Error) {
+            return rej(err);
+          }
+          return rej(new Error("Error establishing a database connection"));
         }
-        return res(db);
-      })
-    });
-  };
-
-  private manageQuery<T>(query: string) {
-    return new Promise<T>((res, rej) => {
-      this.db
-        .then((db) => {
-          db.query(query, [], (err, data) => {
-            db.detach();
-            if (err) {
-              return rej({ message: 'Query error', err });
-            }
-            return res(data as T);
-          })
-        })
-        .catch(err => rej(err))
+        res(db);
+      });
     });
   }
 
-  private get transaction(): Promise<Firebird.Transaction> {
-    return new Promise((res, rej) => {
+  private manageQuery<T>(query: string) {
+    return new Promise<T>((res, rej) => {
+      if (this.queryLogger) {
+        console.log("Executing: ", query);
+      }
       this.db.then((db) => {
-        db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, tx) => {
+        db.query(query, [], (err, data) => {
           if (err) {
-            return rej({ message: 'Error initializing transaction', err });
+            if (err instanceof Error) {
+              return rej(err);
+            }
+            return rej(new Error("Error executing query"));
           }
-          return res(tx);
-        })
-      })
+          db.detach((err) => {
+            if (err) {
+              if (err instanceof Error) {
+                return rej(err);
+              }
+              return rej(new Error("Error detaching database"));
+            }
+            return res(data as T);
+          });
+        });
+      });
     });
   }
 
   get queryRaw() {
-    return handleRawQuery(async <T>(query: string): Promise<T> => {
+    return this.handleRawQuery(async <T>(query: string): Promise<T> => {
       return this.manageQuery<T>(query);
     });
   }
 
   get insertOne() {
-    return handleInsertOne(async <T>(query: string): Promise<T> => {
+    return this.handleInsertOne(async <T>(query: string): Promise<T> => {
       return this.manageQuery<T>(query);
     });
   }
 
   get insertMany() {
-    return handleInsertMany(
+    return this.handleInsertMany(
       async (query: string, length: number): Promise<string> => {
         await this.manageQuery(query);
         return `${length} rows inserted`;
@@ -401,190 +408,195 @@ export class FirebirdQuery {
   }
 
   get updateOne() {
-    return handleUpdateOne(async <T>(query: string): Promise<T> => {
+    return this.handleUpdateOne(async <T>(query: string): Promise<T> => {
       return this.manageQuery<T>(query);
     });
   }
 
   get updateOrInsert() {
-    return handleUpdateOrInsert(async <T>(query: string): Promise<T> => {
+    return this.handleUpdateOrInsert(async <T>(query: string): Promise<T> => {
       return this.manageQuery<T>(query);
     });
   }
 
   get deleteOne() {
-    return handleDeleteOne(async <T>(query: string): Promise<T> => {
+    return this.handleDeleteOne(async <T>(query: string): Promise<T> => {
       return this.manageQuery<T>(query);
     });
   }
 
-  initTransaction(cb: (tx: ReturnType<typeof txHandler>) => void) {
+  destroy(): Promise<void> {
+    return new Promise((res, rej) => {
+      this.conn.destroy((err) => {
+        if (err) {
+          if (err instanceof Error) {
+            return rej(err);
+          }
+          return rej(new Error("Error destroying connection"));
+        }
+        res();
+      });
+    });
+  }
+
+  initTransaction(cb: (tx: ReturnType<typeof this.txHandler>) => void) {
     this.conn.get((err, db) => {
       if (err) {
-        throw new Error('Error Establishing a Database Connection');
+        throw new Error("Error Establishing a Database Connection");
       }
       db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, tx) => {
         if (err) {
-          throw new Error('Error initializing transaction');
+          throw new Error("Error initializing transaction");
         }
-        const res = {
-          queryRaw: handleRawQuery(<T>(query: string): Promise<T[]> => {
-            return new Promise<T[]>((res, rej) => {
-              tx.query(query, [], (err, data) => {
-                if (err) {
-                  return rej(err);
-                }
-                return res(data);
-              });
-            });
-          }),
-        }
-        cb(txHandler(tx));
-      })
-    });
-  }
-}
-
-function handleRawQuery(cb: <T = unknown>(query: string) => Promise<T[]>) {
-  return <T>(strings: TemplateStringsArray, ...params: QueryParam[]) => {
-    const sanitizedQuery = sqlBuilder(strings, params);
-    return {
-      getQuery: () => sanitizedQuery,
-      execute: () => {
-        console.log("Executing: ", sanitizedQuery);
-        return cb(sanitizedQuery) as Promise<T[]>;
-      },
-      paginated: async (take: number, page: number = 1) => {
-        const pagQuery = paginatedQuery(sanitizedQuery, take, page);
-        console.log("Executing: ", pagQuery);
-        return cb(pagQuery) as Promise<T[]>;
-      },
-    };
-  };
-}
-
-function handleInsertOne(cb: <T = unknown>(query: string) => Promise<T>) {
-  return <T extends { [key: string]: any }>(params: InsertOneParams<T>) => {
-    const query = insertOneQuery(params);
-    return {
-      getQuery: () => query,
-      execute: () => {
-        console.log("Executing: ", query);
-        return cb(query) as Promise<T>;
-      },
-    };
-  };
-}
-
-function handleInsertMany(
-  cb: (query: string, length: number) => Promise<string>
-) {
-  return <T extends { [key: string]: any }>(params: InsertParams<T>) => {
-    const query = insertManyQuery(params);
-    return {
-      getQuery: () => query,
-      execute: () => {
-        console.log("Executing: ", query);
-
-        return cb(query, params.rowValues.length) as Promise<string>;
-      },
-    };
-  };
-}
-
-function handleUpdateOne(cb: <T = unknown>(query: string) => Promise<T>) {
-  return <T>(params: UpdateOneParams<T>) => {
-    const query = updateOneQuery(params);
-    return {
-      getQuery: () => query,
-      execute: () => {
-        console.log("Executing: ", query);
-        return cb(query) as Promise<T>;
-      },
-    };
-  };
-}
-
-function handleUpdateOrInsert(cb: <T>(query: string) => Promise<T>) {
-  return <T>(params: UpdateOrInsertParams<T>) => {
-    const query = updateOrInsertQuery(params);
-    return {
-      getQuery: () => query,
-      execute: () => {
-        console.log("Executing: ", query);
-        return cb(query) as Promise<T>;
-      },
-    };
-  };
-}
-
-function handleDeleteOne(cb: <T = unknown>(query: string) => Promise<T>) {
-  return <T>(params: DeleteOneParams<T>) => {
-    const query = deleteOneQuery(params);
-    return {
-      getQuery: () => query,
-      execute: () => {
-        console.log("Executing: ", query);
-        return cb(query) as Promise<T>;
-      },
-    };
-  };
-}
-
-
-function txHandler(tx: Firebird.Transaction) {
-  function onError() {
-    return new Promise<void>((res, rej) => {
-      tx.rollback((err) => {
-        if (err) {
-          return rej(err);
-        }
-        return res();
-      });
-    });
-  };
-
-  function executeTransactionQuery<T>(query: string, processResult: (data: any) => T): Promise<T> {
-    return new Promise<T>((res, rej) => {
-      tx.query(query, [], (err, data) => {
-        if (err) {
-          return rej(err);
-        }
-        return res(processResult(data));
+        cb(this.txHandler(tx));
       });
     });
   }
-
-  return {
-    queryRaw: handleRawQuery(<T>(query: string): Promise<T[]> => {
-      return executeTransactionQuery(query, data => data);
-    }),
-    insertOne: handleInsertOne(<T>(query: string): Promise<T> => {
-      return executeTransactionQuery(query, data => data as T);
-    }),
-    insertMany: handleInsertMany((query: string, length: number): Promise<string> => {
-      return executeTransactionQuery(query, () => `${length} rows inserted`);
-    }),
-    updateOne: handleUpdateOne(<T>(query: string): Promise<T> => {
-      return executeTransactionQuery(query, data => data as T);
-    }),
-    updateOrInsert: handleUpdateOrInsert(<T>(query: string): Promise<T> => {
-      return executeTransactionQuery(query, data => data as T);
-    }),
-    deleteOne: handleDeleteOne(<T>(query: string): Promise<T> => {
-      return executeTransactionQuery(query, data => data as T);
-    }),
-    commit: async () => {
+  private handleRawQuery(cb: <T = unknown>(query: string) => Promise<T[]>) {
+    return <T>(strings: TemplateStringsArray, ...params: QueryParam[]) => {
+      const sanitizedQuery = sqlBuilder(strings, params);
+      return {
+        getQuery: () => sanitizedQuery,
+        execute: () => {
+          return cb(sanitizedQuery) as Promise<T[]>;
+        },
+        paginated: async (take: number, page: number = 1) => {
+          const pagQuery = paginatedQuery(sanitizedQuery, take, page);
+          return cb(pagQuery) as Promise<T[]>;
+        },
+      };
+    };
+  }
+  private handleInsertOne(cb: <T = unknown>(query: string) => Promise<T>) {
+    return <T extends { [key: string]: any }>(params: InsertOneParams<T>) => {
+      const query = insertOneQuery(params);
+      return {
+        getQuery: () => query,
+        execute: () => {
+          return cb(query) as Promise<T>;
+        },
+      };
+    };
+  }
+  private handleInsertMany(
+    cb: (query: string, length: number) => Promise<string>
+  ) {
+    return <T extends { [key: string]: any }>(params: InsertParams<T>) => {
+      const query = insertManyQuery(params);
+      return {
+        getQuery: () => query,
+        execute: () => {
+          return cb(query, params.rowValues.length) as Promise<string>;
+        },
+      };
+    };
+  }
+  private handleUpdateOne(cb: <T = unknown>(query: string) => Promise<T>) {
+    return <T>(params: UpdateOneParams<T>) => {
+      const query = updateOneQuery(params);
+      return {
+        getQuery: () => query,
+        execute: () => {
+          return cb(query) as Promise<T>;
+        },
+      };
+    };
+  }
+  private handleUpdateOrInsert(cb: <T>(query: string) => Promise<T>) {
+    return <T>(params: UpdateOrInsertParams<T>) => {
+      const query = updateOrInsertQuery(params);
+      return {
+        getQuery: () => query,
+        execute: () => {
+          return cb(query) as Promise<T>;
+        },
+      };
+    };
+  }
+  private handleDeleteOne(cb: <T = unknown>(query: string) => Promise<T>) {
+    return <T>(params: DeleteOneParams<T>) => {
+      const query = deleteOneQuery(params);
+      return {
+        getQuery: () => query,
+        execute: () => {
+          return cb(query) as Promise<T>;
+        },
+      };
+    };
+  }
+  private txHandler(tx: Firebird.Transaction) {
+    function onError() {
       return new Promise<void>((res, rej) => {
-        tx.commit(async (err) => {
+        tx.rollback((err) => {
           if (err) {
-            await onError();
-            return rej(err);
+            if (err instanceof Error) {
+              return rej(err);
+            }
+            return rej(new Error("Error rolling back transaction"));
           }
           return res();
         });
       });
-    },
-    rollback: () => onError()
-  };
+    }
+
+    const executeTransactionQuery = <T>(
+      query: string,
+      processResult: (data: any) => T
+    ): Promise<T> => {
+      return new Promise<T>((res, rej) => {
+        if (this.queryLogger) {
+          console.log("Executing: ", query);
+        }
+        tx.query(query, [], (err, data) => {
+          if (err) {
+            if (err instanceof Error) {
+              return rej(err);
+            }
+            rej(new Error("Error executing query"));
+          }
+          return res(processResult(data));
+        });
+      });
+    };
+
+    return {
+      queryRaw: this.handleRawQuery(<T>(query: string): Promise<T[]> => {
+        return executeTransactionQuery(query, (data) => data);
+      }),
+      insertOne: this.handleInsertOne(<T>(query: string): Promise<T> => {
+        return executeTransactionQuery(query, (data) => data as T);
+      }),
+      insertMany: this.handleInsertMany(
+        (query: string, length: number): Promise<string> => {
+          return executeTransactionQuery(
+            query,
+            () => `${length} row${length > 1 ? "s" : ""} inserted`
+          );
+        }
+      ),
+      updateOne: this.handleUpdateOne(<T>(query: string): Promise<T> => {
+        return executeTransactionQuery(query, (data) => data as T);
+      }),
+      updateOrInsert: this.handleUpdateOrInsert(
+        <T>(query: string): Promise<T> => {
+          return executeTransactionQuery(query, (data) => data as T);
+        }
+      ),
+      deleteOne: this.handleDeleteOne(<T>(query: string): Promise<T> => {
+        return executeTransactionQuery(query, (data) => data as T);
+      }),
+      commit: async () => {
+        return new Promise<void>((res, rej) => {
+          tx.commit(async (err) => {
+            if (err) {
+              await onError();
+              return rej(err);
+            }
+            return res();
+          });
+        });
+      },
+      rollback: () => onError(),
+    };
+  }
 }
