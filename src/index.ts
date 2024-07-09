@@ -159,7 +159,7 @@ const handleObjectCondition = (
         condition = `${prefix}${key} LIKE ${escape("%", value)}`;
         break;
       case "contains":
-        condition = `${prefix}${key} LIKE ${escape("%", value, "%")}`;
+        condition = `${prefix}${key} CONTAINING ${escape(value)}`;
         break;
     }
 
