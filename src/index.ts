@@ -39,6 +39,7 @@ type StringOperators = {
   startsWith?: string;
   endsWith?: string;
   contains?: string;
+  containing?: string;
 };
 
 type WhereConditions = NumberOperators | DateOperators | StringOperators;
@@ -160,6 +161,9 @@ const handleObjectCondition = (
         break;
       case "contains":
         condition = `${prefix}${key} LIKE ${escape("%", value, "%")}`;
+        break;
+      case "containing":
+        condition = `${prefix}${key} CONTAINING ${escape( value )}`;
         break;
     }
 
