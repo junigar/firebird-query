@@ -162,7 +162,9 @@ const handleObjectCondition = (
         condition = `${prefix}${key} CONTAINING ${escape(value)}`;
         break;
     }
-
+    if (value === undefined) {
+      condition = '1=1'      
+    }
     if (condition) {
       clauses.push(condition);
     }
