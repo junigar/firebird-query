@@ -267,9 +267,12 @@ const updateOneQuery = <T = void>({
   where,
 }: UpdateOneParams<T>) => {
   const toSet = Object.entries(rowValues).map(
-    ([columnName, value]) => `${columnName} = ${escape(value)}`
+    ([columnName, value]) => value ? `${columnName} = ${escape(value)}` : undefined
   );
-  const valuesStr = toSet.join(", ");
+  
+  const filteredToSet= toSet.filter(item => item !== undefined)
+
+  const valuesStr = filteredToSet.join(", ");
 
   const whereStr = buildWhereClause(where);
 
