@@ -82,7 +82,7 @@ console.log(result);
 
 #### Conditional statements
 
-If a where clause resolved to `undefined`, it will be replaced with a tautology, making it irrelevant to the query result .
+When a where happens to resolve `undefined`, it will be replaced with a tautology, making it irrelevant to the query result .
 
 Take advantage of this behavior to conditionally add statements.
 
@@ -96,6 +96,29 @@ const result = await t.queryRaw`
 
 console.log(result);
 // SELECT COD, NAME FROM USERS WHERE 1=1 AND NAME = 'Tom'
+```
+
+#### Manually escaped statement
+
+You can also provide a function that returns an unsafe string. It is your responsibility to escape the parameters.
+This method can be useful for adding conditional clauses.
+
+```typescript
+// Define any parameters in your customClause function
+const customClause = (withEscaping: boolean): ManuallyEscapedStatement => {
+  // returning a function
+  return (esc) => {
+    const store = "McDonald's";
+    if (withEscaping) {
+      return `STORE = ${esc(store)}`;
+    }
+    return `STORE = ${store}`;
+  };
+};
+const res = db.queryRaw`
+        SELECT * FROM USERS WHERE ${customClause(true)};`.getQuery();
+console.log(res);
+// Expected: SELECT * FROM USERS WHERE STORE = 'McDonald''s';
 ```
 
 #### Advance statements

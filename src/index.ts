@@ -51,10 +51,20 @@ type Operators =
 type keyOmit<T, U extends keyof any> = T & { [P in U]?: never };
 
 export type WhereObject =
-  | keyOmit<{ [key: string]: PrimetiveValue | WhereConditions }, "OR">
+  | keyOmit<
+      {
+        [key: string]:
+          | PrimetiveValue
+          | WhereConditions
+          | ManuallyEscapedStatement;
+      },
+      "OR"
+    >
   | {
       OR: WhereObject[];
     };
+
+export type ManuallyEscapedStatement = (escapeFn: typeof escape) => string;
 
 const buildWhereClause = (
   obj: WhereObject,
@@ -76,6 +86,8 @@ const buildWhereClause = (
       clauses.push(...handleObjectCondition(val, prefix, key));
     } else if (isPrimitiveValue(val)) {
       clauses.push(handlePrimitiveValue(val, prefix, key));
+    } else if (isManuallyEscapedStatement(val)) {
+      return val(Firebird.escape);
     } else {
       clauses.push(defaultCondition(clause));
     }
@@ -95,6 +107,10 @@ const isWhereObject = (val: any): val is WhereObject =>
 
 const isWhereObjectArr = (val: any): val is WhereObject[] =>
   Array.isArray(val) && isWhereObject(val[0]);
+
+const isManuallyEscapedStatement = (
+  val: unknown
+): val is ManuallyEscapedStatement => typeof val === "function";
 
 const isPrimitiveValue = (val: any): val is PrimetiveValue =>
   typeof val === "string" ||
@@ -163,7 +179,7 @@ const handleObjectCondition = (
         break;
     }
     if (value === undefined) {
-      condition = '1=1'      
+      condition = "1=1";
     }
     if (condition) {
       clauses.push(condition);
@@ -171,7 +187,10 @@ const handleObjectCondition = (
   }
   return clauses;
 };
-export type QueryParam = PrimetiveValue | WhereObject;
+export type QueryParam =
+  | PrimetiveValue
+  | WhereObject
+  | ManuallyEscapedStatement;
 const handlePrimitiveValue = (
   val: PrimetiveValue,
   prefix: string,
@@ -191,6 +210,8 @@ const sqlBuilder = (strings: TemplateStringsArray, params: QueryParam[]) => {
         const isLastStr = i === strings.length - 1;
         const valueResult = !isLastStr ? escape(param) : "";
         return cur + valueResult;
+      } else if (isManuallyEscapedStatement(param)) {
+        return cur + param(Firebird.escape);
       } else {
         return "";
       }
@@ -230,7 +251,7 @@ const insertOneQuery = <T extends { [key: string]: any }>(
 
 export type InsertParams<T> = {
   readonly tableName: string;
-  readonly rowValues: ReadonlyArray<{ [k in keyof T]: any }>;
+  readonly rowValues: ReadonlyArray<{ [k in keyof T]: PrimetiveValue }>;
   readonly columnNames: ReadonlyArray<keyof T>;
 };
 
@@ -266,11 +287,11 @@ const updateOneQuery = <T = void>({
   returning = [],
   where,
 }: UpdateOneParams<T>) => {
-  const toSet = Object.entries(rowValues).map(
-    ([columnName, value]) => value ? `${columnName} = ${escape(value)}` : undefined
+  const toSet = Object.entries(rowValues).map(([columnName, value]) =>
+    value ? `${columnName} = ${escape(value)}` : undefined
   );
-  
-  const filteredToSet= toSet.filter(item => item !== undefined)
+
+  const filteredToSet = toSet.filter((item) => item !== undefined);
 
   const valuesStr = filteredToSet.join(", ");
 
