@@ -163,7 +163,10 @@ const handleObjectCondition = (
         break;
     }
     if (value === undefined) {
-      condition = '1=1'      
+      condition = "1=1";
+    }
+    if (Array.isArray(value) && value.length === 0) {
+      condition = "1=1";
     }
     if (condition) {
       clauses.push(condition);
@@ -269,8 +272,8 @@ const updateOneQuery = <T = void>({
   const toSet = Object.entries(rowValues).map(([columnName, value]) =>
     value !== undefined ? `${columnName} = ${escape(value)}` : undefined
   );
-  
-  const filteredToSet= toSet.filter(item => item !== undefined)
+
+  const filteredToSet = toSet.filter((item) => item !== undefined);
 
   const valuesStr = filteredToSet.join(", ");
 
