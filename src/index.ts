@@ -378,10 +378,7 @@ export class FirebirdQuery {
     return new Promise((res, rej) => {
       this.conn.get((err, db) => {
         if (err) {
-          if (err instanceof Error) {
-            return rej(err);
-          }
-          return rej(new Error("Error establishing a database connection"));
+          return rej(err);
         }
         res(db);
       });
@@ -397,23 +394,17 @@ export class FirebirdQuery {
         .then((db) => {
           db.query(query, [], (err, data) => {
             if (err) {
-              if (err instanceof Error) {
-                return rej(err);
-              }
-              return rej(new Error("Error executing query"));
+              throw err;
             }
             db.detach((err) => {
               if (err) {
-                if (err instanceof Error) {
-                  return rej(err);
-                }
-                return rej(new Error("Error detaching database"));
+                throw err;
               }
               return res(data as T);
             });
           });
         })
-        .catch((err) => rej(new Error(err)));
+        .catch((err) => rej(err));
     });
   }
 
@@ -583,7 +574,7 @@ export class FirebirdQuery {
             if (err instanceof Error) {
               return rej(err);
             }
-            rej(new Error("Error executing query"));
+            return rej(new Error("Error executing query"));
           }
           return res(processResult(data));
         });
