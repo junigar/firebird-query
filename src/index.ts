@@ -1,6 +1,6 @@
-import Firebird from "node-firebird";
+import Firebird from 'node-firebird';
 
-const escape = (...val: any[]) => Firebird.escape(val.join(""));
+const escape = (...val: any[]) => Firebird.escape(val.join(''));
 
 export type PrimetiveValue =
   | null
@@ -51,15 +51,25 @@ type Operators =
 type keyOmit<T, U extends keyof any> = T & { [P in U]?: never };
 
 export type WhereObject =
-  | keyOmit<{ [key: string]: PrimetiveValue | WhereConditions }, "OR">
+  | keyOmit<
+      {
+        [key: string]:
+          | PrimetiveValue
+          | WhereConditions
+          | ManuallyEscapedStatement;
+      },
+      "OR"
+    >
   | {
       OR: WhereObject[];
     };
 
+export type ManuallyEscapedStatement = (escapeFn: typeof escape) => string;
+
 const buildWhereClause = (
   obj: WhereObject,
-  prefix = "",
-  clause = "AND"
+  prefix = '',
+  clause = 'AND'
 ): string => {
   const clauses: string[] = [];
 
@@ -76,39 +86,45 @@ const buildWhereClause = (
       clauses.push(...handleObjectCondition(val, prefix, key));
     } else if (isPrimitiveValue(val)) {
       clauses.push(handlePrimitiveValue(val, prefix, key));
+    } else if (isManuallyEscapedStatement(val)) {
+      return val(Firebird.escape);
     } else {
       clauses.push(defaultCondition(clause));
     }
   }
 
-  return clauses.join(" AND ");
+  return clauses.join(' AND ');
 };
 
 const isSingleUndefinedValue = (obj: WhereObject): boolean =>
   Object.values(obj).length === 1 && Object.values(obj)[0] === undefined;
 
 const defaultCondition = (clause: string): string =>
-  clause === "AND" ? "1=1" : "1=0";
+  clause === 'AND' ? '1=1' : '1=0';
 
 const isWhereObject = (val: any): val is WhereObject =>
-  typeof val === "object" && !Array.isArray(val) && !(val instanceof Date);
+  typeof val === 'object' && !Array.isArray(val) && !(val instanceof Date);
 
 const isWhereObjectArr = (val: any): val is WhereObject[] =>
   Array.isArray(val) && isWhereObject(val[0]);
 
+const isManuallyEscapedStatement = (
+  val: unknown
+): val is ManuallyEscapedStatement => typeof val === "function";
+
 const isPrimitiveValue = (val: any): val is PrimetiveValue =>
-  typeof val === "string" ||
-  typeof val === "number" ||
-  typeof val === "boolean" ||
+  typeof val === 'string' ||
+  typeof val === 'number' ||
+  typeof val === 'boolean' ||
   val instanceof Date ||
   val === null ||
   val === undefined;
 
 const handleOrCondition = (val: WhereObject[], prefix: string): string => {
   const orClauses: string[] = val.map((orObj) =>
-    buildWhereClause(orObj, prefix, "OR")
+    buildWhereClause(orObj, prefix, 'OR')
   );
-  return `(${orClauses.join(" OR ")})`;
+  return `(${orClauses.join(' OR ')})`;
 };
 
 const handleObjectCondition = (
@@ -119,46 +135,46 @@ const handleObjectCondition = (
   const clauses: string[] = [];
   for (const subKey in val) {
     const value = val[subKey];
-    let condition = "";
+    let condition = '';
 
     switch (subKey as Operators) {
-      case "ne":
+      case 'ne':
         condition = `${prefix}${key} != ${escape(value)}`;
         break;
-      case "gt":
+      case 'gt':
         condition = `${prefix}${key} > ${escape(value)}`;
         break;
-      case "gte":
+      case 'gte':
         condition = `${prefix}${key} >= ${escape(value)}`;
         break;
-      case "lt":
+      case 'lt':
         condition = `${prefix}${key} < ${escape(value)}`;
         break;
-      case "lte":
+      case 'lte':
         condition = `${prefix}${key} <= ${escape(value)}`;
         break;
-      case "between":
+      case 'between':
         condition = `${prefix}${key} BETWEEN ${escape(
-          value["from"]
-        )} AND ${escape(value["to"])}`;
+          value['from']
+        )} AND ${escape(value['to'])}`;
         break;
-      case "IN":
+      case 'IN':
         condition = `${prefix}${key} IN (${value
           .map((i: any) => escape(i))
-          .join(", ")})`;
+          .join(', ')})`;
         break;
-      case "notIN":
+      case 'notIN':
         condition = `${prefix}${key} NOT IN (${value
           .map((i: any) => escape(i))
-          .join(", ")})`;
+          .join(', ')})`;
         break;
-      case "startsWith":
-        condition = `${prefix}${key} LIKE ${escape(value, "%")}`;
+      case 'startsWith':
+        condition = `${prefix}${key} LIKE ${escape(value, '%')}`;
         break;
-      case "endsWith":
-        condition = `${prefix}${key} LIKE ${escape("%", value)}`;
+      case 'endsWith':
+        condition = `${prefix}${key} LIKE ${escape('%', value)}`;
         break;
-      case "contains":
+      case 'contains':
         condition = `${prefix}${key} CONTAINING ${escape(value)}`;
         break;
     }
@@ -167,6 +183,7 @@ const handleObjectCondition = (
     }
     if (Array.isArray(value) && value.length === 0) {
       condition = "1=1";
+      condition = "1=1";
     }
     if (condition) {
       clauses.push(condition);
@@ -174,12 +191,15 @@ const handleObjectCondition = (
   }
   return clauses;
 };
-export type QueryParam = PrimetiveValue | WhereObject;
+export type QueryParam =
+  | PrimetiveValue
+  | WhereObject
+  | ManuallyEscapedStatement;
 const handlePrimitiveValue = (
   val: PrimetiveValue,
   prefix: string,
   key: string
-): string => (val === undefined ? "1=1" : `${prefix}${key} = ${escape(val)}`);
+): string => (val === undefined ? '1=1' : `${prefix}${key} = ${escape(val)}`);
 
 const sqlBuilder = (strings: TemplateStringsArray, params: QueryParam[]) => {
   return strings
@@ -192,20 +212,22 @@ const sqlBuilder = (strings: TemplateStringsArray, params: QueryParam[]) => {
         return cur + conditionResult;
       } else if (isPrimitiveValue(param)) {
         const isLastStr = i === strings.length - 1;
-        const valueResult = !isLastStr ? escape(param) : "";
+        const valueResult = !isLastStr ? escape(param) : '';
         return cur + valueResult;
+      } else if (isManuallyEscapedStatement(param)) {
+        return cur + param(Firebird.escape);
       } else {
-        return "";
+        return '';
       }
     })
-    .join("");
+    .join('');
 };
 
 const paginatedQuery = (query: string, take: number, page: number) => {
   const skip = take * (page - 1);
   return `SELECT FIRST ${take} SKIP ${skip} * FROM (${query.replace(
     /;*$/g,
-    ""
+    ''
   )});`;
 };
 
@@ -219,21 +241,21 @@ const insertOneQuery = <T extends { [key: string]: any }>(
 ) => {
   const { tableName, rowValues, returning = [] } = params;
   const columns = Object.keys(rowValues);
-  const columnsStr = columns.join(", ");
+  const columnsStr = columns.join(', ');
   const escapedValues = columns.map((key) => escape(rowValues[key]));
-  const valuesStr = escapedValues.join(", ");
+  const valuesStr = escapedValues.join(', ');
 
   let query = `INSERT INTO ${tableName} (${columnsStr}) VALUES (${valuesStr})`;
   if (returning.length > 0) {
-    query += ` RETURNING ${returning.join(", ")}`;
+    query += ` RETURNING ${returning.join(', ')}`;
   }
-  query += ";";
+  query += ';';
   return query;
 };
 
 export type InsertParams<T> = {
   readonly tableName: string;
-  readonly rowValues: ReadonlyArray<{ [k in keyof T]: any }>;
+  readonly rowValues: ReadonlyArray<{ [k in keyof T]: PrimetiveValue }>;
   readonly columnNames: ReadonlyArray<keyof T>;
 };
 
@@ -242,15 +264,15 @@ const insertManyQuery = <T>({
   columnNames,
   rowValues,
 }: InsertParams<T>) => {
-  const sortedColumnsStr = columnNames.slice().sort().join(", ");
+  const sortedColumnsStr = columnNames.slice().sort().join(', ');
   const selectStatements = rowValues.map((row) => {
     const sortedRow = Object.entries(row).sort(([a], [b]) =>
       a.localeCompare(b)
     );
-    const valuesList = sortedRow.map(([, value]) => escape(value)).join(", ");
+    const valuesList = sortedRow.map(([, value]) => escape(value)).join(', ');
     return `SELECT ${valuesList} FROM RDB$DATABASE`;
   });
-  const toInsertStatement = selectStatements.join(" UNION ALL ");
+  const toInsertStatement = selectStatements.join(' UNION ALL ');
   const query = `INSERT INTO ${tableName} (${sortedColumnsStr}) ${toInsertStatement};`;
 
   return query;
@@ -271,19 +293,23 @@ const updateOneQuery = <T = void>({
 }: UpdateOneParams<T>) => {
   const toSet = Object.entries(rowValues).map(([columnName, value]) =>
     value !== undefined ? `${columnName} = ${escape(value)}` : undefined
+  const toSet = Object.entries(rowValues).map(([columnName, value]) =>
+    value ? `${columnName} = ${escape(value)}` : undefined
   );
 
   const filteredToSet = toSet.filter((item) => item !== undefined);
 
-  const valuesStr = filteredToSet.join(", ");
+  const filteredToSet = toSet.filter((item) => item !== undefined);
+
+  const valuesStr = filteredToSet.join(', ');
 
   const whereStr = buildWhereClause(where);
 
   let query = `UPDATE ${tableName} SET ${valuesStr} WHERE ${whereStr}`;
   if (returning.length > 0) {
-    query += ` RETURNING ${returning.join(", ")}`;
+    query += ` RETURNING ${returning.join(', ')}`;
   }
-  query += ";";
+  query += ';';
   return query;
 };
 
@@ -299,15 +325,15 @@ const updateOrInsertQuery = <T>({
   returning = [],
 }: UpdateOrInsertParams<T>) => {
   const columns = Object.keys(rowValues);
-  const columnsStr = columns.join(", ");
+  const columnsStr = columns.join(', ');
   const escapedValues = columns.map((key) => escape(rowValues[key]));
-  const valuesStr = escapedValues.join(", ");
+  const valuesStr = escapedValues.join(', ');
 
   let query = `UPDATE OR INSERT INTO ${tableName} (${columnsStr}) VALUES (${valuesStr})`;
   if (returning.length > 0) {
-    query += ` RETURNING ${returning.join(", ")}`;
+    query += ` RETURNING ${returning.join(', ')}`;
   }
-  query += ";";
+  query += ';';
   return query;
 };
 
@@ -322,17 +348,17 @@ const deleteOneQuery = <T>(params: DeleteOneParams<T>): string => {
   const whereClauses = buildWhereClause(where);
   let query = `DELETE FROM ${tableName} WHERE ${whereClauses}`;
   if (returning.length > 0) {
-    query += ` RETURNING ${returning.join(", ")}`;
+    query += ` RETURNING ${returning.join(', ')}`;
   }
-  query += ";";
+  query += ';';
   return query;
 };
 
 const defaultOptions: Firebird.Options = {
   host: process.env.DB_HOST,
-  port: Number.parseInt(process.env.DB_PORT || "") || 3050,
+  port: Number.parseInt(process.env.DB_PORT || '') || 3050,
   database: process.env.DB_DATABASE,
-  user: process.env.DB_USER || "SYSDBA",
+  user: process.env.DB_USER || 'SYSDBA',
   password: process.env.DB_PASSWORD,
 };
 
@@ -360,7 +386,7 @@ export class FirebirdQuery {
           if (err instanceof Error) {
             return rej(err);
           }
-          return rej(new Error("Error establishing a database connection"));
+          return rej(new Error('Error establishing a database connection'));
         }
         res(db);
       });
@@ -370,7 +396,7 @@ export class FirebirdQuery {
   private manageQuery<T>(query: string) {
     return new Promise<T>((res, rej) => {
       if (this.queryLogger) {
-        console.log("Executing: ", query);
+        console.log('Executing: ', query);
       }
       this.db
         .then((db) => {
@@ -442,7 +468,7 @@ export class FirebirdQuery {
           if (err instanceof Error) {
             return rej(err);
           }
-          return rej(new Error("Error destroying connection"));
+          return rej(new Error('Error destroying connection'));
         }
         res();
       });
@@ -452,11 +478,11 @@ export class FirebirdQuery {
   initTransaction(cb: (tx: ReturnType<typeof this.txHandler>) => void) {
     this.conn.get((err, db) => {
       if (err) {
-        throw new Error("Error Establishing a Database Connection");
+        throw new Error('Error Establishing a Database Connection');
       }
       db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, tx) => {
         if (err) {
-          throw new Error("Error initializing transaction");
+          throw new Error('Error initializing transaction');
         }
         cb(this.txHandler(tx));
       });
@@ -542,7 +568,7 @@ export class FirebirdQuery {
             if (err instanceof Error) {
               return rej(err);
             }
-            return rej(new Error("Error rolling back transaction"));
+            return rej(new Error('Error rolling back transaction'));
           }
           return res();
         });
@@ -555,14 +581,14 @@ export class FirebirdQuery {
     ): Promise<T> => {
       return new Promise<T>((res, rej) => {
         if (this.queryLogger) {
-          console.log("Executing: ", query);
+          console.log('Executing: ', query);
         }
         tx.query(query, [], (err, data) => {
           if (err) {
             if (err instanceof Error) {
               return rej(err);
             }
-            rej(new Error("Error executing query"));
+            rej(new Error('Error executing query'));
           }
           return res(processResult(data));
         });
@@ -580,7 +606,7 @@ export class FirebirdQuery {
         (query: string, length: number): Promise<string> => {
           return executeTransactionQuery(
             query,
-            () => `${length} row${length > 1 ? "s" : ""} inserted`
+            () => `${length} row${length > 1 ? 's' : ''} inserted`
           );
         }
       ),

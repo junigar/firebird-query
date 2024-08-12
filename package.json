@@ -2,7 +2,7 @@
   "name": "firebird-query",
   "private": false,
   "license": "MIT",
-  "version": "0.5.2",
+  "version": "0.5.4",
   "description": "node-firebird plugin for easy and safe query building.",
   "author": {
     "name": "Junior Garozzo",
