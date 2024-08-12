@@ -58,7 +58,7 @@ export type WhereObject =
           | WhereConditions
           | ManuallyEscapedStatement;
       },
-      "OR"
+      'OR'
     >
   | {
       OR: WhereObject[];
@@ -110,7 +110,7 @@ const isWhereObjectArr = (val: any): val is WhereObject[] =>
 
 const isManuallyEscapedStatement = (
   val: unknown
-): val is ManuallyEscapedStatement => typeof val === "function";
+): val is ManuallyEscapedStatement => typeof val === 'function';
 
 const isPrimitiveValue = (val: any): val is PrimetiveValue =>
   typeof val === 'string' ||
@@ -179,11 +179,10 @@ const handleObjectCondition = (
         break;
     }
     if (value === undefined) {
-      condition = "1=1";
+      condition = '1=1';
     }
     if (Array.isArray(value) && value.length === 0) {
-      condition = "1=1";
-      condition = "1=1";
+      condition = '1=1';
     }
     if (condition) {
       clauses.push(condition);
@@ -293,11 +292,7 @@ const updateOneQuery = <T = void>({
 }: UpdateOneParams<T>) => {
   const toSet = Object.entries(rowValues).map(([columnName, value]) =>
     value !== undefined ? `${columnName} = ${escape(value)}` : undefined
-  const toSet = Object.entries(rowValues).map(([columnName, value]) =>
-    value ? `${columnName} = ${escape(value)}` : undefined
   );
-
-  const filteredToSet = toSet.filter((item) => item !== undefined);
 
   const filteredToSet = toSet.filter((item) => item !== undefined);
 
@@ -405,14 +400,14 @@ export class FirebirdQuery {
               if (err instanceof Error) {
                 return rej(err);
               }
-              return rej(new Error("Error executing query"));
+              return rej(new Error('Error executing query'));
             }
             db.detach((err) => {
               if (err) {
                 if (err instanceof Error) {
                   return rej(err);
                 }
-                return rej(new Error("Error detaching database"));
+                return rej(new Error('Error detaching database'));
               }
               return res(data as T);
             });
