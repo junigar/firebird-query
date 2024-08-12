@@ -181,6 +181,9 @@ const handleObjectCondition = (
     if (value === undefined) {
       condition = "1=1";
     }
+    if (Array.isArray(value) && value.length === 0) {
+      condition = "1=1";
+    }
     if (condition) {
       clauses.push(condition);
     }
@@ -288,7 +291,7 @@ const updateOneQuery = <T = void>({
   where,
 }: UpdateOneParams<T>) => {
   const toSet = Object.entries(rowValues).map(([columnName, value]) =>
-    value ? `${columnName} = ${escape(value)}` : undefined
+    value !== undefined ? `${columnName} = ${escape(value)}` : undefined
   );
 
   const filteredToSet = toSet.filter((item) => item !== undefined);
@@ -390,25 +393,27 @@ export class FirebirdQuery {
       if (this.queryLogger) {
         console.log("Executing: ", query);
       }
-      this.db.then((db) => {
-        db.query(query, [], (err, data) => {
-          if (err) {
-            if (err instanceof Error) {
-              return rej(err);
-            }
-            return rej(new Error("Error executing query"));
-          }
-          db.detach((err) => {
+      this.db
+        .then((db) => {
+          db.query(query, [], (err, data) => {
             if (err) {
               if (err instanceof Error) {
                 return rej(err);
               }
-              return rej(new Error("Error detaching database"));
+              return rej(new Error("Error executing query"));
             }
-            return res(data as T);
+            db.detach((err) => {
+              if (err) {
+                if (err instanceof Error) {
+                  return rej(err);
+                }
+                return rej(new Error("Error detaching database"));
+              }
+              return res(data as T);
+            });
           });
-        });
-      });
+        })
+        .catch((err) => rej(new Error(err)));
     });
   }
 
