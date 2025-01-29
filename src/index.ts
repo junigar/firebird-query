@@ -461,16 +461,20 @@ export class FirebirdQuery {
     });
   }
 
-  initTransaction(cb: (tx: ReturnType<typeof this.txHandler>) => void) {
-    this.conn.get((err, db) => {
-      if (err) {
-        throw new Error("Error Establishing a Database Connection");
-      }
-      db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, tx) => {
+  initTransaction<T>(
+    cb: (tx: ReturnType<typeof this.txHandler>) => T
+  ): Promise<T> {
+    return new Promise((res, rej) => {
+      this.conn.get((err, db) => {
         if (err) {
-          throw new Error("Error initializing transaction");
+          rej(new Error("Error Establishing a Database Connection"));
         }
-        cb(this.txHandler(tx));
+        db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, tx) => {
+          if (err) {
+            rej(new Error("Error initializing transaction"));
+          }
+          res(cb(this.txHandler(tx)));
+        });
       });
     });
   }
