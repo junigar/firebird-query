@@ -425,7 +425,7 @@ export class FirebirdQuery {
         if (err) {
           return rej(err);
         }
-        res(db);
+        return res(db);
       });
     });
   }
@@ -439,11 +439,11 @@ export class FirebirdQuery {
         .then((db) => {
           db.query(query, [], (err, data) => {
             if (err) {
-              throw err;
+              return rej(err);
             }
             db.detach((err) => {
               if (err) {
-                throw err;
+                return rej(err);
               }
               return res(data as T);
             });
@@ -501,7 +501,7 @@ export class FirebirdQuery {
           }
           return rej(new Error("Error destroying connection"));
         }
-        res();
+        return res();
       });
     });
   }
@@ -510,13 +510,13 @@ export class FirebirdQuery {
     return new Promise((res, rej) => {
       this.conn.get((err, db) => {
         if (err) {
-          rej(new Error("Error Establishing a Database Connection"));
+          return rej(new Error("Error Establishing a Database Connection"));
         }
         db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, tx) => {
           if (err) {
-            rej(new Error("Error initializing transaction"));
+            return rej(new Error("Error initializing transaction"));
           }
-          res(cb(this.txHandler(tx)));
+          return res(cb(this.txHandler(tx)));
         });
       });
     });
