@@ -2,6 +2,51 @@ import Firebird from "node-firebird";
 
 const escape = (...val: any[]) => Firebird.escape(val.join(""));
 
+type TxReturnType = {
+  queryRaw: <T>(
+    strings: TemplateStringsArray,
+    ...params: QueryParam[]
+  ) => {
+    getQuery: () => string;
+    execute: () => Promise<T[]>;
+    paginated: (take: number, page?: number) => Promise<any>;
+  };
+  insertOne: <
+    T extends {
+      [key: string]: any;
+    }
+  >(
+    params: InsertOneParams<T>
+  ) => {
+    getQuery: () => string;
+    execute: () => Promise<T>;
+  };
+  insertMany: <
+    T extends {
+      [key: string]: any;
+    }
+  >(
+    params: InsertParams<T>
+  ) => {
+    getQuery: () => string;
+    execute: () => Promise<string>;
+  };
+  updateOne: <T>(params: UpdateOneParams<T>) => {
+    getQuery: () => string;
+    execute: () => Promise<T>;
+  };
+  updateOrInsert: <T>(params: UpdateOrInsertParams<T>) => {
+    getQuery: () => string;
+    execute: () => Promise<T>;
+  };
+  deleteOne: <T>(params: DeleteOneParams<T>) => {
+    getQuery: () => string;
+    execute: () => Promise<T>;
+  };
+  commit: () => Promise<void>;
+  rollback: () => Promise<void>;
+};
+
 export type PrimetiveValue =
   | null
   | undefined
@@ -461,9 +506,7 @@ export class FirebirdQuery {
     });
   }
 
-  initTransaction<T>(
-    cb: (tx: ReturnType<typeof this.txHandler>) => T
-  ): Promise<T> {
+  initTransaction<T>(cb: (tx: TxReturnType) => T): Promise<T> {
     return new Promise((res, rej) => {
       this.conn.get((err, db) => {
         if (err) {
@@ -623,6 +666,6 @@ export class FirebirdQuery {
         });
       },
       rollback: () => onError(),
-    };
+    } satisfies TxReturnType;
   }
 }
