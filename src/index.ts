@@ -1,6 +1,6 @@
 import Firebird from "node-firebird";
 
-const escape = (...val: any[]) => Firebird.escape(val.join(""));
+const escape = (...val: PrimitiveValue[]) => Firebird.escape(val.join(""));
 
 type TxReturnType = {
   queryRaw: <T>(
@@ -47,7 +47,7 @@ type TxReturnType = {
   rollback: () => Promise<void>;
 };
 
-export type PrimetiveValue =
+export type PrimitiveValue =
   | null
   | undefined
   | boolean
@@ -99,7 +99,7 @@ export type WhereObject =
   | keyOmit<
       {
         [key: string]:
-          | PrimetiveValue
+          | PrimitiveValue
           | WhereConditions
           | ManuallyEscapedStatement;
       },
@@ -109,7 +109,9 @@ export type WhereObject =
       OR: WhereObject[];
     };
 
-export type ManuallyEscapedStatement = (escapeFn: typeof escape) => string;
+export type ManuallyEscapedStatement = (
+  escapeFn: typeof Firebird.escape
+) => string;
 
 const buildWhereClause = (
   obj: WhereObject,
@@ -157,7 +159,7 @@ const isManuallyEscapedStatement = (
   val: unknown
 ): val is ManuallyEscapedStatement => typeof val === "function";
 
-const isPrimitiveValue = (val: any): val is PrimetiveValue =>
+const isPrimitiveValue = (val: any): val is PrimitiveValue =>
   typeof val === "string" ||
   typeof val === "number" ||
   typeof val === "boolean" ||
@@ -199,9 +201,9 @@ const handleObjectCondition = (
         condition = `${prefix}${key} <= ${escape(value)}`;
         break;
       case "between":
-        condition = `${prefix}${key} BETWEEN ${escape(
+        condition = `${prefix}${key} BETWEEN ${Firebird.escape(
           value["from"]
-        )} AND ${escape(value["to"])}`;
+        )} AND ${Firebird.escape(value["to"])}`;
         break;
       case "IN":
         condition = `${prefix}${key} IN (${value
@@ -236,11 +238,11 @@ const handleObjectCondition = (
   return clauses;
 };
 export type QueryParam =
-  | PrimetiveValue
+  | PrimitiveValue
   | WhereObject
   | ManuallyEscapedStatement;
 const handlePrimitiveValue = (
-  val: PrimetiveValue,
+  val: PrimitiveValue,
   prefix: string,
   key: string
 ): string => (val === undefined ? "1=1" : `${prefix}${key} = ${escape(val)}`);
@@ -298,9 +300,9 @@ const insertOneQuery = <T extends { [key: string]: any }>(
 };
 
 export type InsertParams<T> = {
-  readonly tableName: string;
-  readonly rowValues: ReadonlyArray<{ [k in keyof T]: PrimetiveValue }>;
-  readonly columnNames: ReadonlyArray<keyof T>;
+  tableName: string;
+  rowValues: Array<{ [k in keyof T]: PrimitiveValue }>;
+  columnNames: Array<keyof T>;
 };
 
 const insertManyQuery = <T>({
@@ -313,7 +315,9 @@ const insertManyQuery = <T>({
     const sortedRow = Object.entries(row).sort(([a], [b]) =>
       a.localeCompare(b)
     );
-    const valuesList = sortedRow.map(([, value]) => escape(value)).join(", ");
+    const valuesList = sortedRow
+      .map(([, value]) => escape(value as PrimitiveValue))
+      .join(", ");
     return `SELECT ${valuesList} FROM RDB$DATABASE`;
   });
   const toInsertStatement = selectStatements.join(" UNION ALL ");
