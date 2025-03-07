@@ -310,10 +310,13 @@ const insertManyQuery = <T>({
   columnNames,
   rowValues,
 }: InsertParams<T>) => {
-  const sortedColumnsStr = columnNames.slice().sort().join(", ");
+  const sortedColumnsStr = columnNames
+    .slice()
+    .sort((a, b) => String(a).localeCompare(String(b)))
+    .join(", ");
   const selectStatements = rowValues.map((row) => {
     const sortedRow = Object.entries(row).sort(([a], [b]) =>
-      a.localeCompare(b)
+      String(a).localeCompare(String(b))
     );
     const valuesList = sortedRow
       .map(([, value]) => escape(value as PrimitiveValue))
