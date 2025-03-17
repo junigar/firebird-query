@@ -2,7 +2,7 @@ import Firebird from "node-firebird";
 
 const escape = (...val: PrimitiveValue[]) => Firebird.escape(val.join(""));
 
-type TxReturnType = {
+export type TxReturnType = {
   queryRaw: <T>(
     strings: TemplateStringsArray,
     ...params: QueryParam[]
@@ -261,7 +261,7 @@ const sqlBuilder = (strings: TemplateStringsArray, params: QueryParam[]) => {
         const valueResult = !isLastStr ? escape(param) : "";
         return cur + valueResult;
       } else if (isManuallyEscapedStatement(param)) {
-        return cur + param(Firebird.escape);
+        return cur + param((s) => Firebird.escape(s));
       } else {
         return "";
       }
@@ -330,10 +330,10 @@ const insertManyQuery = <T>({
 };
 
 export type UpdateOneParams<T> = {
-  readonly tableName: string;
-  readonly rowValues: { [k in string]: any };
-  readonly where: WhereObject;
-  readonly returning?: ReadonlyArray<keyof T | string>;
+  tableName: string;
+  rowValues: { [k in string]: any };
+  where: WhereObject;
+  returning?: ReadonlyArray<keyof T | string>;
 };
 
 const updateOneQuery = <T = void>({
@@ -360,10 +360,10 @@ const updateOneQuery = <T = void>({
   return query;
 };
 
-type UpdateOrInsertParams<T> = {
-  readonly tableName: string;
-  readonly rowValues: { [k in string]: any };
-  readonly returning?: ReadonlyArray<keyof T | string>;
+export type UpdateOrInsertParams<T> = {
+  tableName: string;
+  rowValues: { [k in string]: any };
+  returning?: ReadonlyArray<keyof T | string>;
 };
 
 const updateOrInsertQuery = <T>({
@@ -385,9 +385,9 @@ const updateOrInsertQuery = <T>({
 };
 
 export type DeleteOneParams<T> = {
-  readonly tableName: string;
-  readonly where: WhereObject;
-  readonly returning?: ReadonlyArray<keyof T | string>;
+  tableName: string;
+  where: WhereObject;
+  returning?: ReadonlyArray<keyof T | string>;
 };
 
 const deleteOneQuery = <T>(params: DeleteOneParams<T>): string => {
