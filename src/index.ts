@@ -222,7 +222,7 @@ const handleObjectCondition = (
         condition = `${prefix}${key} LIKE ${escape("%", value)}`;
         break;
       case "contains":
-        condition = `${prefix}${key} CONTAINING ${escape(value)}`;
+        condition = `${prefix}${key} CONTAINING ${Firebird.escape(value)}`;
         break;
     }
     if (value === undefined) {
@@ -245,7 +245,8 @@ const handlePrimitiveValue = (
   val: PrimitiveValue,
   prefix: string,
   key: string
-): string => (val === undefined ? "1=1" : `${prefix}${key} = ${escape(val)}`);
+): string =>
+  val === undefined ? "1=1" : `${prefix}${key} = ${Firebird.escape(val)}`;
 
 const sqlBuilder = (strings: TemplateStringsArray, params: QueryParam[]) => {
   return strings
@@ -258,7 +259,7 @@ const sqlBuilder = (strings: TemplateStringsArray, params: QueryParam[]) => {
         return cur + conditionResult;
       } else if (isPrimitiveValue(param)) {
         const isLastStr = i === strings.length - 1;
-        const valueResult = !isLastStr ? escape(param) : "";
+        const valueResult = !isLastStr ? Firebird.escape(param) : "";
         return cur + valueResult;
       } else if (isManuallyEscapedStatement(param)) {
         return cur + param((s) => Firebird.escape(s));
@@ -279,7 +280,7 @@ const paginatedQuery = (query: string, take: number, page: number) => {
 
 export type InsertOneParams<T extends { [key: string]: any }> = {
   tableName: string;
-  rowValues: object;
+  rowValues: Record<string, PrimitiveValue>;
   returning?: (keyof T | string)[];
 };
 const insertOneQuery = <T extends { [key: string]: any }>(
@@ -288,7 +289,7 @@ const insertOneQuery = <T extends { [key: string]: any }>(
   const { tableName, rowValues, returning = [] } = params;
   const columns = Object.keys(rowValues);
   const columnsStr = columns.join(", ");
-  const escapedValues = columns.map((key) => escape(rowValues[key]));
+  const escapedValues = columns.map((key) => Firebird.escape(rowValues[key]));
   const valuesStr = escapedValues.join(", ");
 
   let query = `INSERT INTO ${tableName} (${columnsStr}) VALUES (${valuesStr})`;
@@ -319,7 +320,7 @@ const insertManyQuery = <T>({
       String(a).localeCompare(String(b))
     );
     const valuesList = sortedRow
-      .map(([, value]) => escape(value as PrimitiveValue))
+      .map(([, value]) => Firebird.escape(value as PrimitiveValue))
       .join(", ");
     return `SELECT ${valuesList} FROM RDB$DATABASE`;
   });
