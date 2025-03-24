@@ -186,19 +186,19 @@ const handleObjectCondition = (
 
     switch (subKey as Operators) {
       case "ne":
-        condition = `${prefix}${key} != ${escape(value)}`;
+        condition = `${prefix}${key} != ${Firebird.escape(value)}`;
         break;
       case "gt":
-        condition = `${prefix}${key} > ${escape(value)}`;
+        condition = `${prefix}${key} > ${Firebird.escape(value)}`;
         break;
       case "gte":
-        condition = `${prefix}${key} >= ${escape(value)}`;
+        condition = `${prefix}${key} >= ${Firebird.escape(value)}`;
         break;
       case "lt":
-        condition = `${prefix}${key} < ${escape(value)}`;
+        condition = `${prefix}${key} < ${Firebird.escape(value)}`;
         break;
       case "lte":
-        condition = `${prefix}${key} <= ${escape(value)}`;
+        condition = `${prefix}${key} <= ${Firebird.escape(value)}`;
         break;
       case "between":
         condition = `${prefix}${key} BETWEEN ${Firebird.escape(
@@ -207,12 +207,12 @@ const handleObjectCondition = (
         break;
       case "IN":
         condition = `${prefix}${key} IN (${value
-          .map((i: any) => escape(i))
+          .map((i: any) => Firebird.escape(i))
           .join(", ")})`;
         break;
       case "notIN":
         condition = `${prefix}${key} NOT IN (${value
-          .map((i: any) => escape(i))
+          .map((i: any) => Firebird.escape(i))
           .join(", ")})`;
         break;
       case "startsWith":
