@@ -121,10 +121,10 @@ export type WhereObject =
       "AND"
     >
   | {
-      OR: WhereObject[];
+      OR?: WhereObject[];
     }
   | {
-      AND: WhereObject[];
+      AND?: WhereObject[];
     };
 
 export type ManuallyEscapedStatement = (
