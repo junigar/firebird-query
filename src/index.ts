@@ -1,5 +1,9 @@
 import Firebird from "node-firebird";
 
+type Prettify<T> = {
+  [K in keyof T]: T[K];
+} & {};
+
 const escape = (...val: PrimitiveValue[]) => Firebird.escape(val.join(""));
 
 export type TxReturnType = {
@@ -86,14 +90,16 @@ type StringOperators = {
   contains?: string;
 };
 
-type WhereConditions = NumberOperators | DateOperators | StringOperators;
+type WhereConditions = Prettify<
+  NumberOperators | DateOperators | StringOperators
+>;
 
 type Operators =
   | keyof NumberOperators
   | keyof DateOperators
   | keyof StringOperators;
 
-type keyOmit<T, U extends keyof any> = T & { [P in U]?: never };
+type keyOmit<T, U extends keyof any> = Prettify<T & { [P in U]?: never }>;
 
 export type WhereObject =
   | keyOmit<
@@ -105,8 +111,20 @@ export type WhereObject =
       },
       "OR"
     >
+  | keyOmit<
+      {
+        [key: string]:
+          | PrimitiveValue
+          | WhereConditions
+          | ManuallyEscapedStatement;
+      },
+      "AND"
+    >
   | {
       OR: WhereObject[];
+    }
+  | {
+      AND: WhereObject[];
     };
 
 export type ManuallyEscapedStatement = (
@@ -128,7 +146,7 @@ const buildWhereClause = (
     const val = obj[key];
 
     if (isWhereObjectArr(val)) {
-      clauses.push(handleOrCondition(val, prefix));
+      clauses.push(handleOrCondition(val, prefix, key));
     } else if (isWhereObject(val)) {
       clauses.push(...handleObjectCondition(val, prefix, key));
     } else if (isPrimitiveValue(val)) {
@@ -167,11 +185,15 @@ const isPrimitiveValue = (val: any): val is PrimitiveValue =>
   val === null ||
   val === undefined;
 
-const handleOrCondition = (val: WhereObject[], prefix: string): string => {
+const handleOrCondition = (
+  val: WhereObject[],
+  prefix: string,
+  type = "OR"
+): string => {
   const orClauses: string[] = val.map((orObj) =>
-    buildWhereClause(orObj, prefix, "OR")
+    buildWhereClause(orObj, prefix, type)
   );
-  return `(${orClauses.join(" OR ")})`;
+  return `(${orClauses.join(` ${type} `)})`;
 };
 
 const handleObjectCondition = (
