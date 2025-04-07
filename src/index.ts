@@ -458,12 +458,12 @@ export class FirebirdQuery {
       maxConnections?: number;
     } = { ...defaultOptions },
     fqOptions?: {
-      queryLogger: (query: string) => void;
+      queryLogger: ((query: string) => void) | undefined;
       defaultIsolationLevel?: TxIsolation
     }
   ) {
     const { maxConnections = 15, ...options } = poolOptions;
-    this.queryLogger = fqOptions?.queryLogger || undefined;
+    this.queryLogger = fqOptions?.queryLogger;
     this.conn = Firebird.pool(maxConnections, options);
     this.defaultIsolationLevel = fqOptions?.defaultIsolationLevel || "READ_UNCOMMITTED";
   }
