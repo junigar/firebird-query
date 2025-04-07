@@ -1,5 +1,21 @@
 import Firebird from "node-firebird";
 
+export type TxIsolation =
+  | "READ_COMMITTED"
+  | "READ_COMMITTED_READ_ONLY"
+  | "READ_UNCOMMITTED"
+  | "REPEATABLE_READ"
+  | "SERIALIZABLE";
+
+
+const isolationMap: Record<TxIsolation, number[]> = {
+  READ_COMMITTED: Firebird.ISOLATION_READ_COMMITTED,
+  READ_COMMITTED_READ_ONLY: Firebird.ISOLATION_READ_COMMITTED_READ_ONLY,
+  READ_UNCOMMITTED: Firebird.ISOLATION_READ_UNCOMMITTED,
+  REPEATABLE_READ: Firebird.ISOLATION_REPEATABLE_READ,
+  SERIALIZABLE: Firebird.ISOLATION_SERIALIZABLE,
+}
+
 type Prettify<T> = {
   [K in keyof T]: T[K];
 } & {};
@@ -103,29 +119,29 @@ type keyOmit<T, U extends keyof any> = Prettify<T & { [P in U]?: never }>;
 
 export type WhereObject =
   | keyOmit<
-      {
-        [key: string]:
-          | PrimitiveValue
-          | WhereConditions
-          | ManuallyEscapedStatement;
-      },
-      "OR"
-    >
+    {
+      [key: string]:
+      | PrimitiveValue
+      | WhereConditions
+      | ManuallyEscapedStatement;
+    },
+    "OR"
+  >
   | keyOmit<
-      {
-        [key: string]:
-          | PrimitiveValue
-          | WhereConditions
-          | ManuallyEscapedStatement;
-      },
-      "AND"
-    >
+    {
+      [key: string]:
+      | PrimitiveValue
+      | WhereConditions
+      | ManuallyEscapedStatement;
+    },
+    "AND"
+  >
   | {
-      OR?: WhereObject[];
-    }
+    OR?: WhereObject[];
+  }
   | {
-      AND?: WhereObject[];
-    };
+    AND?: WhereObject[];
+  };
 
 export type ManuallyEscapedStatement = (
   escapeFn: typeof Firebird.escape
@@ -434,19 +450,22 @@ const defaultOptions: Firebird.Options = {
 
 export class FirebirdQuery {
   private conn: Firebird.ConnectionPool;
-  private queryLogger: boolean;
+  private queryLogger: ((query: string) => void) | undefined;
+  private defaultIsolationLevel: TxIsolation;
 
   constructor(
     poolOptions: Firebird.Options & {
       maxConnections?: number;
     } = { ...defaultOptions },
     fqOptions?: {
-      queryLogger: boolean;
+      queryLogger: (query: string) => void;
+      defaultIsolationLevel?: TxIsolation
     }
   ) {
     const { maxConnections = 15, ...options } = poolOptions;
-    this.queryLogger = fqOptions?.queryLogger || false;
+    this.queryLogger = fqOptions?.queryLogger || undefined;
     this.conn = Firebird.pool(maxConnections, options);
+    this.defaultIsolationLevel = fqOptions?.defaultIsolationLevel || "READ_UNCOMMITTED";
   }
 
   private get db(): Promise<Firebird.Database> {
@@ -463,7 +482,7 @@ export class FirebirdQuery {
   private manageQuery<T>(query: string) {
     return new Promise<T>((res, rej) => {
       if (this.queryLogger) {
-        console.log("Executing: ", query);
+        this.queryLogger(query);
       }
       this.db
         .then((db) => {
@@ -536,13 +555,14 @@ export class FirebirdQuery {
     });
   }
 
-  initTransaction<T>(cb: (tx: TxReturnType) => T): Promise<T> {
+  initTransaction<T>(cb: (tx: TxReturnType) => T, isolation?: TxIsolation): Promise<T> {
+    const isolationLevel = isolation ? isolationMap[isolation] : isolationMap[this.defaultIsolationLevel];
     return new Promise((res, rej) => {
       this.conn.get((err, db) => {
         if (err) {
           return rej(new Error("Error Establishing a Database Connection"));
         }
-        db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, tx) => {
+        db.transaction(isolationLevel, (err, tx) => {
           if (err) {
             return rej(new Error("Error initializing transaction"));
           }
@@ -644,7 +664,7 @@ export class FirebirdQuery {
     ): Promise<T> => {
       return new Promise<T>((res, rej) => {
         if (this.queryLogger) {
-          console.log("Executing: ", query);
+          this.queryLogger(query);
         }
         tx.query(query, [], (err, data) => {
           if (err) {
