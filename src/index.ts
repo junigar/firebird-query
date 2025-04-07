@@ -450,7 +450,7 @@ const defaultOptions: Firebird.Options = {
 
 export class FirebirdQuery {
   private conn: Firebird.ConnectionPool;
-  private queryLogger: ((query: string) => void) | undefined;
+  private queryLogger?: ((query: string) => void);
   private defaultIsolationLevel: TxIsolation;
 
   constructor(
@@ -458,7 +458,7 @@ export class FirebirdQuery {
       maxConnections?: number;
     } = { ...defaultOptions },
     fqOptions?: {
-      queryLogger: ((query: string) => void) | undefined;
+      queryLogger?: ((query: string) => void);
       defaultIsolationLevel?: TxIsolation
     }
   ) {
