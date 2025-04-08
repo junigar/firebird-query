@@ -65,6 +65,8 @@ export type TxReturnType = {
   };
   commit: () => Promise<void>;
   rollback: () => Promise<void>;
+  commitRetaining: () => Promise<void>;
+  rollbackRetaining: () => Promise<void>;
 };
 
 export type PrimitiveValue =
@@ -449,6 +451,7 @@ const defaultOptions: Firebird.Options = {
 };
 
 export class FirebirdQuery {
+  private readonly options: Firebird.Options;
   private conn: Firebird.ConnectionPool;
   private queryLogger?: ((query: string) => void);
   private defaultIsolationLevel: TxIsolation;
@@ -463,9 +466,10 @@ export class FirebirdQuery {
     }
   ) {
     const { maxConnections = 15, ...options } = poolOptions;
+    this.options = options;
     this.queryLogger = fqOptions?.queryLogger;
     this.conn = Firebird.pool(maxConnections, options);
-    this.defaultIsolationLevel = fqOptions?.defaultIsolationLevel || "READ_UNCOMMITTED";
+    this.defaultIsolationLevel = fqOptions?.defaultIsolationLevel || "READ_COMMITTED";
   }
 
   private get db(): Promise<Firebird.Database> {
@@ -556,18 +560,18 @@ export class FirebirdQuery {
   }
 
   initTransaction<T>(cb: (tx: TxReturnType) => T, isolation?: TxIsolation): Promise<T> {
-    const isolationLevel = isolation ? isolationMap[isolation] : isolationMap[this.defaultIsolationLevel];
+    const isolationLevel = isolation || this.defaultIsolationLevel;
     return new Promise((res, rej) => {
-      this.conn.get((err, db) => {
+      Firebird.attach(this.options, (err, db) => {
         if (err) {
           return rej(new Error("Error Establishing a Database Connection"));
         }
-        db.transaction(isolationLevel, (err, tx) => {
+        db.transaction(isolationMap[isolationLevel], (err, tx) => {
           if (err) {
             return rej(new Error("Error initializing transaction"));
           }
-          return res(cb(this.txHandler(tx)));
-        });
+          return res(cb(this.txHandler(tx, db)));
+        })
       });
     });
   }
@@ -643,20 +647,7 @@ export class FirebirdQuery {
       };
     };
   }
-  private txHandler(tx: Firebird.Transaction) {
-    function onError() {
-      return new Promise<void>((res, rej) => {
-        tx.rollback((err) => {
-          if (err) {
-            if (err instanceof Error) {
-              return rej(err);
-            }
-            return rej(new Error("Error rolling back transaction"));
-          }
-          return res();
-        });
-      });
-    }
+  private txHandler(tx: Firebird.Transaction, db: Firebird.Database) {
 
     const executeTransactionQuery = <T>(
       query: string,
@@ -668,10 +659,12 @@ export class FirebirdQuery {
         }
         tx.query(query, [], (err, data) => {
           if (err) {
-            if (err instanceof Error) {
-              return rej(err);
-            }
-            return rej(new Error("Error executing query"));
+            tx.rollback((txErr) => {
+              if (txErr) {
+                return rej(txErr);
+              }
+            });
+            return rej(err);
           }
           return res(processResult(data));
         });
@@ -704,18 +697,47 @@ export class FirebirdQuery {
       deleteOne: this.handleDeleteOne(<T>(query: string): Promise<T> => {
         return executeTransactionQuery(query, (data) => data as T);
       }),
-      commit: async () => {
+      commit: () => {
         return new Promise<void>((res, rej) => {
-          tx.commit(async (err) => {
+          tx.commit((err) => {
             if (err) {
-              await onError();
+              return rej(err);
+            }
+            db.detach((err) => {
+              if (err) {
+                return rej(err);
+              }
+              return res();
+            })
+          });
+        });
+      },
+      rollback: () => new Promise<void>((res, rej) => {
+        tx.rollback((err) => {
+          if (err) {
+            return rej(err);
+          }
+          return res();
+        })
+      }),
+      commitRetaining: () => {
+        return new Promise<void>((res, rej) => {
+          tx.commitRetaining((err) => {
+            if (err) {
               return rej(err);
             }
             return res();
           });
         });
       },
-      rollback: () => onError(),
+      rollbackRetaining: () => new Promise<void>((res, rej) => {
+        tx.rollbackRetaining((err) => {
+          if (err) {
+            return rej(err);
+          }
+          return res();
+        })
+      }),
     } satisfies TxReturnType;
   }
 }
