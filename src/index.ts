@@ -180,7 +180,7 @@ const buildWhereClause = (
 };
 
 const isSingleUndefinedValue = (obj: WhereObject): boolean =>
-  Object.values(obj).length === 1 && Object.values(obj)[0] === undefined;
+  (Object.values(obj).length === 1 && Object.values(obj)[0] === undefined);
 
 const defaultCondition = (clause: string): string =>
   clause === "AND" ? "1=1" : "1=0";
@@ -292,6 +292,10 @@ const sqlBuilder = (strings: TemplateStringsArray, params: QueryParam[]) => {
   return strings
     .map((cur, i) => {
       const param = params[i];
+
+      if (param === null) {
+        return cur + Firebird.escape(null);
+      }
 
       if (isWhereObject(param)) {
         const conditions = param;
@@ -414,7 +418,7 @@ const updateOrInsertQuery = <T>({
 }: UpdateOrInsertParams<T>) => {
   const columns = Object.keys(rowValues);
   const columnsStr = columns.join(", ");
-  const escapedValues = columns.map((key) => escape(rowValues[key]));
+  const escapedValues = columns.map((key) => Firebird.escape(rowValues[key]));
   const valuesStr = escapedValues.join(", ");
 
   let query = `UPDATE OR INSERT INTO ${tableName} (${columnsStr}) VALUES (${valuesStr})`;
