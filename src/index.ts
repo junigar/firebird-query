@@ -388,7 +388,7 @@ const updateOneQuery = <T = void>({
   where,
 }: UpdateOneParams<T>) => {
   const toSet = Object.entries(rowValues).map(([columnName, value]) =>
-    value !== undefined ? `${columnName} = ${escape(value)}` : undefined
+    value !== undefined ? `${columnName} = ${Firebird.escape(value)}` : undefined
   );
 
   const filteredToSet = toSet.filter((item) => item !== undefined);
